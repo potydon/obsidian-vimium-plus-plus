@@ -84,12 +84,13 @@ export class ModeManager {
 	}
 
 	/**
-	 * Handle an Escape press while in editing mode. In Vim insert mode the key
-	 * is left for native Vim (insert→normal); otherwise it returns to reading.
-	 * Returns true if it triggered the exit (consume the event).
+	 * Handle an Escape press while in editing mode. Escape in any Vim mode
+	 * other than normal (insert, visual, replace…) belongs to Vim, which
+	 * returns to normal; only a normal-mode Escape exits to reading. Returns
+	 * true if it triggered the exit (consume the event).
 	 */
-	handleEditingEscape(vimInsert: boolean): boolean {
-		if (vimInsert) return false;
+	handleEditingEscape(vimMode: string): boolean {
+		if (vimMode !== "normal") return false;
 		void this.exitToReading();
 		return true;
 	}

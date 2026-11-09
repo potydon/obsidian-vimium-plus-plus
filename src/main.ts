@@ -24,8 +24,9 @@ export default class VimiumPlugin extends Plugin {
 	private webviewBridge!: WebviewBridge;
 
 	private indicatorEl: HTMLElement | null = null;
-	// Whether the native Vim layer is currently in insert mode.
-	private vimInsert = false;
+	// The native Vim layer's current mode: "normal", "insert", "visual",
+	// "replace", etc. Escape is only ours to consume in normal mode.
+	private vimMode = "normal";
 	// Editors whose vim adapter we subscribed to, so we can unsubscribe on unload.
 	private vimBoundCms = new Set<VimAwareCm>();
 	// Keys buffered while they are still a prefix of some key sequence.
@@ -199,13 +200,24 @@ export default class VimiumPlugin extends Plugin {
 		this.addCommand({
 			id: "enter-editing",
 			name: "Enter editing mode",
-			callback: () => void this.modeManager.enterEditing(),
+			callback: () => this.enterEditing(),
 		});
 		this.addCommand({
 			id: "return-to-reading",
 			name: "Return to reading mode",
-			callback: () => void this.modeManager.exitToReading(),
+			callback: () => this.exitToReading(),
 		});
+	}
+
+	/** Enter editing with a clean Vim mode; a fresh editor starts in normal. */
+	private enterEditing(): void {
+		this.vimMode = "normal";
+		void this.modeManager.enterEditing();
+	}
+
+	private exitToReading(): void {
+		this.vimMode = "normal";
+		void this.modeManager.exitToReading();
 	}
 
 	// ---- key routing --------------------------------------------------------
@@ -237,7 +249,8 @@ export default class VimiumPlugin extends Plugin {
 		const webviewActive = this.webviewBridge.activeWebview() !== null;
 		if (!webviewActive && this.modeManager.mode === "editing") {
 			if (e.key === "Escape" && !hasModifier(e)) {
-				if (this.modeManager.handleEditingEscape(this.vimInsert)) {
+				if (this.modeManager.handleEditingEscape(this.vimMode)) {
+					this.vimMode = "normal";
 					e.preventDefault();
 					e.stopPropagation();
 				}
@@ -386,7 +399,7 @@ export default class VimiumPlugin extends Plugin {
 				else this.scroller.toBottom();
 				return true;
 			case "i":
-				void this.modeManager.enterEditing();
+				this.enterEditing();
 				return true;
 			case "b":
 				this.openBookmarkSearch(false);
@@ -468,8 +481,10 @@ export default class VimiumPlugin extends Plugin {
 			return;
 		}
 		const editing = this.modeManager.mode === "editing";
-		const insert = editing && this.vimInsert;
-		this.indicatorEl.setText(insert ? "INSERT" : editing ? "NORMAL" : "READING");
+		const insert = editing && this.vimMode === "insert";
+		this.indicatorEl.setText(
+			editing ? VIM_MODE_LABELS[this.vimMode] ?? "NORMAL" : "READING"
+		);
 		this.indicatorEl.toggleClass("mod-normal", editing && !insert);
 		this.indicatorEl.toggleClass("mod-insert", insert);
 	}
@@ -488,12 +503,19 @@ export default class VimiumPlugin extends Plugin {
 	}
 
 	private readonly onVimModeChange = (modeObj?: { mode?: string }): void => {
-		const insert = modeObj?.mode === "insert";
-		if (insert === this.vimInsert) return;
-		this.vimInsert = insert;
+		const mode = modeObj?.mode ?? "normal";
+		if (mode === this.vimMode) return;
+		this.vimMode = mode;
 		this.refreshModeIndicator();
 	};
 }
+
+/** Human-readable status-pill labels for the Vim modes we distinguish. */
+const VIM_MODE_LABELS: Record<string, string> = {
+	insert: "INSERT",
+	visual: "VISUAL",
+	replace: "REPLACE",
+};
 
 /** The CM5-flavoured vim adapter Obsidian attaches to markdown editors. */
 interface VimAwareCm {

@@ -3,7 +3,7 @@
 A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 
 - **Reading mode** (the Vimium layer — the default): every note opens in Reading view. Scroll with `j`/`k`, jump around with `f` click-hints, and never touch the mouse.
-- **Editing mode**: press `i` to drop into the editor, where Obsidian's built-in **Vim** key bindings take over. **Double-press `Escape`** to come back to Reading mode.
+- **Editing mode**: press `i` to drop into the editor, where Obsidian's built-in **Vim** key bindings take over. `Escape` first returns Vim to normal mode (from insert/visual/replace); `Escape` in normal mode comes back to Reading mode.
 
 ![Click hints shown over links, tabs, and the file tree after pressing `f`](assets/hints.png)
 
@@ -26,7 +26,7 @@ A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 | `t` | Open a new tab. |
 | `x` / `Shift`+`X` | Close the current tab / restore closed tabs. |
 | `i` | Enter editing mode (focus the editor; native Vim active). |
-| `Esc` `Esc` | (In editing mode) return to Reading mode. |
+| `Esc` | (In editing mode) leave Vim insert/visual/replace for normal mode; in normal mode, return to Reading mode. |
 
 Any key — or a multi-key sequence like `gT` — can be bound to any command-palette command under **Settings → Vimium+ → Custom key bindings**. Type the keys as plain text; each character is one keypress. Two bindings ship by default: `o` (quick switcher) and `p` (command palette) — remap or remove them as you like. Custom bindings take priority over the built-in keys above; the settings dialog asks for confirmation before you shadow a built-in (or start a sequence with one, which delays it by the chord timeout).
 
@@ -44,11 +44,11 @@ Limitations: custom key bindings and terminal commands don't fire while the page
 
 The plugin ties "command mode" to Obsidian's **Reading view** rather than a fragile focus heuristic. It forces every note to open in Reading view (toggleable in settings) and turns on Obsidian's native Vim key bindings, so `i` lands you in a real Vim editor. Both overridden settings are restored when you disable the plugin.
 
-The double-Escape exit is timing-based: the first `Esc` is left for Vim (insert→normal); a second `Esc` within the timeout (default 400 ms, configurable) flips the note back to Reading view.
+Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim to return to normal; only in Vim normal mode does `Esc` flip the note back to Reading view.
 
 ## Settings
 
-Hint characters, hint font size, scroll step, force-Reading-view toggle, native-Vim toggle, double-Escape timeout, mode-indicator toggle, Web viewer integration toggle, and the list of CSS selectors that become hint targets.
+Hint characters, hint font size, scroll step, force-Reading-view toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, and the list of CSS selectors that become hint targets.
 
 ## Build
 
@@ -84,5 +84,5 @@ ln -s "$(pwd)" "<your-vault>/.obsidian/plugins/vimium-plus"
 2. `j`/`k` scroll; `d`/`u` half-page; `gg`/`G` top/bottom; `Shift`+`J`/`Shift`+`K` switch tabs.
 3. Press `f` → hint letters appear over links/buttons (in the note **and** on tabs/ribbon/file tree); type a label to click it; `Esc` cancels. `Shift`+`F` opens the link in a new tab.
 4. Press `i` → the note switches to the editor, focused, with native Vim (`h j k l`, `i` to insert).
-5. Double-press `Esc` → back to Reading mode.
+5. `Esc` in normal mode → back to Reading mode; in insert/visual mode it returns Vim to normal first.
 6. Typing in the search box is **not** hijacked by `j`/`k`/`f`.
