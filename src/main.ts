@@ -1,4 +1,4 @@
-import { MarkdownView, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	VimiumSettings,
@@ -229,6 +229,47 @@ export default class VimiumPlugin extends Plugin {
 			name: "Toggle file explorer",
 			callback: () => this.explorer.toggle(),
 		});
+
+		// Vim-style `:w` / `:q`: open the command palette with `:` and type
+		// `w` or `q`. Registered on the internal command registry rather than
+		// with `this.addCommand`, which would prefix the plugin name and push
+		// the leading letter too far down the palette's fuzzy ranking.
+		this.registerPaletteCommand("save-note", "w: Save note", "save", () =>
+			void this.saveActiveNote()
+		);
+		this.registerPaletteCommand(
+			"close-tab",
+			"q: Close current tab",
+			"x",
+			() => this.app.commands.executeCommandById("workspace:close")
+		);
+	}
+
+	/** Registers a palette command without the plugin-name prefix, and removes it on unload. */
+	private registerPaletteCommand(
+		id: string,
+		name: string,
+		icon: string,
+		callback: () => void
+	): void {
+		const fullId = `${this.manifest.id}:${id}`;
+		this.app.commands.addCommand({ id: fullId, name, icon, callback });
+		this.register(() => this.app.commands.removeCommand(fullId));
+	}
+
+	/**
+	 * Save the active note the same way Ctrl+S does: `MarkdownView.save`
+	 * writes only when the view data differs from the last saved version. In
+	 * Reading view there is usually nothing pending, so it acts as a no-op
+	 * rather than doing something unexpected.
+	 */
+	private async saveActiveNote(): Promise<void> {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (view == null) {
+			new Notice("There is no note open to save.");
+			return;
+		}
+		await view.save();
 	}
 
 	/** Enter editing with a clean Vim mode; a fresh editor starts in normal. */

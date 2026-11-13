@@ -8,6 +8,13 @@ declare module "obsidian" {
 			executeCommandById(id: string): boolean;
 			listCommands(): Command[];
 			commands: Record<string, unknown>;
+			addCommand(command: {
+				id: string;
+				name: string;
+				icon?: string;
+				callback: () => void;
+			}): void;
+			removeCommand(id: string): void;
 		};
 		internalPlugins: {
 			getEnabledPluginById(

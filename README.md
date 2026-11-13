@@ -33,6 +33,17 @@ Any key — or a multi-key sequence like `gT` — can be bound to any command-pa
 
 While hints are showing: type the label to activate, `Backspace` to correct, `Esc` to cancel. Holding `Shift` on the **last** letter of a label opens that target in a new tab (even if you started with plain `f`).
 
+## Saving and closing (`:w` / `:q`)
+
+A default `:` binding opens Obsidian's command palette, which makes a Vim-style workflow possible. Two commands are registered without the usual `Vimium++:` prefix so their names really start with the letter, and typing that letter in the palette selects them first:
+
+| Command | Action |
+| --- | --- |
+| `w: Save note` | Save the active note the same way `Ctrl`/`Cmd`+`S` does. In Reading view there is usually nothing pending, so it acts as a no-op rather than doing something unexpected. |
+| `q: Close current tab` | Close the active tab (same as `workspace:close`). |
+
+So `:` then `w` then `Enter` saves, and `:` then `q` then `Enter` closes the tab — the Vim `:w` / `:q` muscle memory, without a modal command line.
+
 ## File explorer
 
 The built-in file explorer gets a neo-tree-style key layer while it has focus. Press `e` in Reading mode (or run **Toggle file explorer** from the command palette) to focus it, then:
@@ -71,11 +82,11 @@ Limitations: custom key bindings and terminal commands don't fire while the page
 
 The plugin ties "command mode" to Obsidian's **Reading view** rather than a fragile focus heuristic. It forces every note to open in Reading view (toggleable in settings) and turns on Obsidian's native Vim key bindings, so `i` lands you in a real Vim editor. Both overridden settings are restored when you disable the plugin.
 
-Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim to return to normal; only in Vim normal mode does `Esc` flip the note back to Reading view.
+Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim to return to normal; in Vim normal mode `Esc` flips the note back to Reading view. That normal-mode exit can be turned off with the **Escape returns to Reading mode** setting, leaving `Esc` entirely to the editor.
 
 ## Settings
 
-Hint characters, hint font size, scroll step, force-Reading-view toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, and the list of CSS selectors that become hint targets.
+Hint characters, hint font size, scroll step, force-Reading-view toggle, Escape-returns-to-Reading toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, and the list of CSS selectors that become hint targets.
 
 ## Build
 

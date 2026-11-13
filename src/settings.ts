@@ -64,6 +64,8 @@ export interface VimiumSettings {
 	scrollStep: number;
 	/** Force every opened note into Reading view (the Vimium layer). */
 	forceReadingView: boolean;
+	/** Escape in the editor (normal Vim mode) returns to Reading view. */
+	escapeReturnsToReading: boolean;
 	/** Turn on Obsidian's native Vim key bindings on load. */
 	enableNativeVim: boolean;
 	/** Show a small mode indicator pill. */
@@ -111,6 +113,7 @@ export const DEFAULT_SETTINGS: VimiumSettings = {
 	hintFontSize: 11,
 	scrollStep: 70,
 	forceReadingView: true,
+	escapeReturnsToReading: true,
 	enableNativeVim: true,
 	showModeIndicator: true,
 	enableWebviewIntegration: true,
@@ -260,6 +263,18 @@ export class VimiumSettingTab extends PluginSettingTab {
 						this.plugin.settings.forceReadingView = value;
 						await this.plugin.saveSettings();
 						this.plugin.applyForceReadingView(value);
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Escape returns to Reading mode")
+			.setDesc("While editing a note, press Escape in normal Vim mode to leave the editor and go back to Reading view. Turn this off to keep Escape inside the editor.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.escapeReturnsToReading)
+					.onChange(async (value) => {
+						this.plugin.settings.escapeReturnsToReading = value;
+						await this.plugin.saveSettings();
 					})
 			);
 
