@@ -5,6 +5,7 @@ import {
 	VimiumSettingTab,
 } from "./settings";
 import { ModeManager } from "./mode";
+import { Explorer } from "./explorer";
 import { HintEngine } from "./hints/hint-engine";
 import { Scroller } from "./scroll";
 import { WebviewBridge } from "./webview";
@@ -19,6 +20,7 @@ export default class VimiumPlugin extends Plugin {
 	settings!: VimiumSettings;
 
 	private modeManager!: ModeManager;
+	private explorer!: Explorer;
 	private hintEngine!: HintEngine;
 	private scroller!: Scroller;
 	private webviewBridge!: WebviewBridge;
@@ -50,6 +52,7 @@ export default class VimiumPlugin extends Plugin {
 		this.hintEngine = new HintEngine(this.app, this.settings, () =>
 			this.refreshModeIndicator()
 		);
+		this.explorer = new Explorer(this.app, this.settings);
 		this.scroller = new Scroller(this.app);
 		this.webviewBridge = new WebviewBridge(
 			this.app,
@@ -73,6 +76,7 @@ export default class VimiumPlugin extends Plugin {
 			this.app.workspace.on("active-leaf-change", (leaf) => {
 				this.watchVimMode();
 				this.webviewBridge.ensureAll();
+				this.syncExplorerKeys();
 				// syncFromView no-ops on non-markdown views, so webview leaves
 				// need the indicator refreshed here.
 				this.refreshModeIndicator();
@@ -87,6 +91,7 @@ export default class VimiumPlugin extends Plugin {
 			this.app.workspace.on("layout-change", () => {
 				this.watchVimMode();
 				this.webviewBridge.ensureAll();
+				this.syncExplorerKeys();
 				this.modeManager.syncFromView();
 			})
 		);
@@ -103,6 +108,7 @@ export default class VimiumPlugin extends Plugin {
 		this.app.workspace.onLayoutReady(() => {
 			this.watchVimMode();
 			this.webviewBridge.ensureAll();
+			this.syncExplorerKeys();
 			this.refreshModeIndicator();
 		});
 	}
@@ -110,6 +116,7 @@ export default class VimiumPlugin extends Plugin {
 	onunload(): void {
 		this.webviewBridge?.destroy();
 		this.hintEngine?.hide();
+		this.explorer?.restoreNativeKeys();
 		this.indicatorEl?.remove();
 		this.indicatorEl = null;
 		for (const cm of this.vimBoundCms) {
@@ -131,6 +138,16 @@ export default class VimiumPlugin extends Plugin {
 		await this.saveData(this.settings);
 		// Keep live webview guests in sync with hint/scroll settings.
 		this.webviewBridge?.reinjectAll();
+		this.syncExplorerKeys();
+		this.clearPending();
+	}
+
+	/** Remove or restore the explorer's own Enter handler as the setting changes. */
+	private syncExplorerKeys(): void {
+		this.explorer?.syncNativeKeys({
+			space: false,
+			enter: this.settings.explorerKeys,
+		});
 	}
 
 	private applyEditorConfig(): void {
@@ -207,6 +224,11 @@ export default class VimiumPlugin extends Plugin {
 			name: "Return to reading mode",
 			callback: () => this.exitToReading(),
 		});
+		this.addCommand({
+			id: "toggle-file-explorer",
+			name: "Toggle file explorer",
+			callback: () => this.explorer.toggle(),
+		});
 	}
 
 	/** Enter editing with a clean Vim mode; a fresh editor starts in normal. */
@@ -237,6 +259,30 @@ export default class VimiumPlugin extends Plugin {
 		// is not reliable.
 		if (this.webviewBridge.hintRelayActive) {
 			if (this.webviewBridge.relayHintKey(e.key)) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			return;
+		}
+
+		// Obsidian's own overlays (modals, menus, suggestions) take the keyboard;
+		// vim keys must not fire behind a delete/rename confirmation.
+		if (isOverlayOpen()) return;
+
+		// The file explorer has its own neo-tree-style key set. This must run
+		// before the editing guard: clicking the explorer while a note was in
+		// editing mode leaves modeManager.mode as "editing".
+		if (this.settings.explorerKeys && this.explorer.isActive()) {
+			if (isEditableTarget()) return;
+			// Ctrl/Cmd+Enter and Shift+Enter always open the focused folder's
+			// folder note, even when plain Enter is configured not to.
+			if (this.explorer.handleModifiedEnter(e)) {
+				e.preventDefault();
+				e.stopPropagation();
+				return;
+			}
+			if (e.ctrlKey || e.metaKey || e.altKey) return;
+			if (this.handleExplorerKey(e)) {
 				e.preventDefault();
 				e.stopPropagation();
 			}
@@ -275,6 +321,11 @@ export default class VimiumPlugin extends Plugin {
 		return this.feedKey(e.key);
 	}
 
+	private handleExplorerKey(e: KeyboardEvent): boolean {
+		if (e.key === "Shift") return false;
+		return this.feedKey(e.key);
+	}
+
 	/**
 	 * Advance the key-sequence state machine with one key. Custom bindings
 	 * (which may be multi-key sequences like "gT") and the built-in `gg` chord
@@ -283,16 +334,17 @@ export default class VimiumPlugin extends Plugin {
 	 * ambiguity. Custom bindings win over built-ins on an equal match.
 	 */
 	private feedKey(key: string): boolean {
+		const explorer = this.isExplorerContext();
 		const hadPending = this.pendingKeys.length > 0;
 		const candidate = this.pendingKeys + key;
-		const targets = this.sequenceTargets();
+		const targets = explorer ? this.explorerTargets() : this.sequenceTargets();
 		const exact = targets.find((t) => t.seq === candidate);
 		const extendable = targets.some(
 			(t) => t.seq.length > candidate.length && t.seq.startsWith(candidate)
 		);
 
 		if (extendable) {
-			this.setPending(candidate, exact);
+			this.setPending(candidate, exact, explorer);
 			return true;
 		}
 		this.clearPending();
@@ -304,11 +356,24 @@ export default class VimiumPlugin extends Plugin {
 			// Dead-end chord: drop the buffered prefix, give this key a fresh start.
 			return this.feedKey(key);
 		}
+		return this.runFallbackKey(key, explorer);
+	}
+
+	private runFallbackKey(key: string, explorer: boolean): boolean {
+		if (explorer && this.runExplorerKey(key)) {
+			return true;
+		}
+		// Reading-mode built-ins still work for keys the explorer doesn't use
+		// (f hints, b/O searches, J/K tabs, ...).
 		return this.runBuiltinKey(key);
 	}
 
-	/** Every multi-key-capable target: custom bindings and terminal commands first, then `gg`. */
-	private sequenceTargets(): { seq: string; run: () => void }[] {
+	private isExplorerContext(): boolean {
+		return this.settings.explorerKeys && this.explorer.isActive();
+	}
+
+	/** Custom command and terminal bindings, usable from any key context. */
+	private customTargets(): { seq: string; run: () => void }[] {
 		const targets: { seq: string; run: () => void }[] = this.settings.keyBindings
 			.filter((b) => b.key.length > 0 && b.commandId)
 			.map((b) => ({
@@ -323,6 +388,12 @@ export default class VimiumPlugin extends Plugin {
 				});
 			}
 		}
+		return targets;
+	}
+
+	/** Reading-mode targets: custom bindings first, then the built-in `gg`. */
+	private sequenceTargets(): { seq: string; run: () => void }[] {
+		const targets = this.customTargets();
 		targets.push({
 			seq: "gg",
 			run: () => {
@@ -334,7 +405,31 @@ export default class VimiumPlugin extends Plugin {
 		return targets;
 	}
 
-	private setPending(candidate: string, exact?: { run: () => void }): void {
+	/** Explorer keys first so custom bindings cannot shadow the focused explorer's actions. */
+	private explorerTargets(): { seq: string; run: () => void }[] {
+		return [
+			...this.explorer.bindings().map((binding) => ({
+				seq: binding.keys,
+				run: () => void binding.run(),
+			})),
+			...this.customTargets(),
+		];
+	}
+
+	private runExplorerKey(key: string): boolean {
+		const binding = this.explorer.bindings().find((b) => b.keys === key);
+		if (binding == null) {
+			return false;
+		}
+		void binding.run();
+		return true;
+	}
+
+	private setPending(
+		candidate: string,
+		exact?: { run: () => void },
+		explorer = false
+	): void {
 		this.clearPending();
 		this.pendingKeys = candidate;
 		this.pendingTimer = window.setTimeout(() => {
@@ -345,7 +440,7 @@ export default class VimiumPlugin extends Plugin {
 			if (exact) {
 				exact.run();
 			} else if (candidate.length === 1) {
-				this.runBuiltinKey(candidate);
+				this.runFallbackKey(candidate, explorer);
 			}
 		}, VimiumPlugin.CHORD_TIMEOUT_MS);
 	}
@@ -400,6 +495,10 @@ export default class VimiumPlugin extends Plugin {
 				return true;
 			case "i":
 				this.enterEditing();
+				return true;
+			case "e":
+				if (!this.settings.explorerKeys) return false;
+				this.explorer.toggle();
 				return true;
 			case "b":
 				this.openBookmarkSearch(false);
@@ -480,6 +579,12 @@ export default class VimiumPlugin extends Plugin {
 			this.indicatorEl.toggleClass("mod-insert", false);
 			return;
 		}
+		if (this.settings.explorerKeys && this.explorer?.isActive()) {
+			this.indicatorEl.setText("EXPLORER");
+			this.indicatorEl.toggleClass("mod-normal", false);
+			this.indicatorEl.toggleClass("mod-insert", false);
+			return;
+		}
 		const editing = this.modeManager.mode === "editing";
 		const insert = editing && this.vimMode === "insert";
 		this.indicatorEl.setText(
@@ -531,6 +636,20 @@ interface VimAwareCm {
 
 function hasModifier(e: KeyboardEvent): boolean {
 	return e.ctrlKey || e.metaKey || e.altKey || e.shiftKey;
+}
+
+/** Overlays that take over the keyboard, as direct children of <body>. */
+const OVERLAY_CLASSES = ["modal-container", "menu", "suggestion-container"];
+
+function isOverlayOpen(): boolean {
+	const { children } = activeDocument.body;
+	for (let i = 0; i < children.length; i++) {
+		const el = children[i];
+		if (el != null && OVERLAY_CLASSES.some((cls) => el.classList.contains(cls))) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /** True when focus is in a text field where our keys must not be hijacked. */

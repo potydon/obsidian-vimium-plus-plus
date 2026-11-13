@@ -7,11 +7,15 @@ declare module "obsidian" {
 		commands: {
 			executeCommandById(id: string): boolean;
 			listCommands(): Command[];
+			commands: Record<string, unknown>;
 		};
 		internalPlugins: {
 			getEnabledPluginById(
 				id: "bookmarks"
 			): BookmarksPluginInstance | null;
+		};
+		viewRegistry: {
+			isExtensionRegistered(extension: string): boolean;
 		};
 	}
 

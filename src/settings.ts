@@ -32,6 +32,7 @@ export const BUILTIN_KEYS: Record<string, string> = {
 	t: "new tab",
 	x: "close tab",
 	X: "restore closed tab",
+	e: "toggle file explorer",
 };
 
 /** A user-defined key that runs a command palette command in reading mode. */
@@ -69,6 +70,14 @@ export interface VimiumSettings {
 	showModeIndicator: boolean;
 	/** Inject vim keys and hints into Web viewer tabs (Electron webviews). */
 	enableWebviewIntegration: boolean;
+	/** Neo-tree-style keys while the built-in file explorer is focused. */
+	explorerKeys: boolean;
+	/** Plain Enter on a folder opens its Folder Notes note instead of toggling. */
+	enterOpensFolderNote: boolean;
+	/** Plain Enter on a folder expands it instead of toggling it. */
+	expandFolderOnEnter: boolean;
+	/** Ask before `d` deletes a file or folder in the explorer. */
+	confirmDelete: boolean;
 	/** Custom reading-mode key bindings. They override the built-in keys. */
 	keyBindings: KeyBinding[];
 	/** Keys that spawn a shell command (desktop only). */
@@ -105,6 +114,10 @@ export const DEFAULT_SETTINGS: VimiumSettings = {
 	enableNativeVim: true,
 	showModeIndicator: true,
 	enableWebviewIntegration: true,
+	explorerKeys: true,
+	enterOpensFolderNote: true,
+	expandFolderOnEnter: false,
+	confirmDelete: true,
 	keyBindings: [
 		{
 			key: "p",
@@ -290,6 +303,55 @@ export class VimiumSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Enable file explorer keys")
+			.setDesc("Neo-tree-style keys while the built-in file explorer has focus. Press e in Reading mode (or run the Toggle file explorer command) to focus the explorer.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.explorerKeys)
+					.onChange(async (value) => {
+						this.plugin.settings.explorerKeys = value;
+						await this.plugin.saveSettings();
+						this.plugin.refreshModeIndicator();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Open folder note on Enter")
+			.setDesc("While the file explorer has focus, Enter on a folder opens its Folder Notes note. Turn this off to open folder notes with Ctrl+Enter or Shift+Enter instead.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enterOpensFolderNote)
+					.onChange(async (value) => {
+						this.plugin.settings.enterOpensFolderNote = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Expand folder on Enter")
+			.setDesc("Enter on a folder expands it instead of toggling it. When Enter also opens a folder note, the folder is expanded first.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.expandFolderOnEnter)
+					.onChange(async (value) => {
+						this.plugin.settings.expandFolderOnEnter = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Confirm before deleting in the explorer")
+			.setDesc("Ask before d deletes a file or folder while the file explorer has focus.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.confirmDelete)
+					.onChange(async (value) => {
+						this.plugin.settings.confirmDelete = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
 			.setName("Hint target selectors")
 			.setDesc("One CSS selector per line. Visible elements matching any selector become hint targets.")
 			.addTextArea((text) => {
@@ -306,8 +368,17 @@ export class VimiumSettingTab extends PluginSettingTab {
 				text.inputEl.addClass("vimium-selectors-input");
 			});
 
+		this.displayExplorerKeys(containerEl);
 		this.displayKeyBindings(containerEl);
 		this.displayTerminalCommands(containerEl);
+	}
+
+	private displayExplorerKeys(containerEl: HTMLElement): void {
+		new Setting(containerEl).setName("File explorer keys").setHeading();
+		containerEl.createEl("p", {
+			text: "While the file explorer is focused: j/k move · h/l collapse or expand · Enter opens a file, opens the folder note, expands, or toggles a folder (see the two Enter settings above); Ctrl/Cmd+Enter or Shift+Enter always opens the folder note · gg/G first or last · z collapse all · a/A new file or folder · d delete · r rename · m move · c copy to path · x/y cut/copy · p paste · u undo · s/S/t split or tab · q close · Esc back to the editor.",
+			cls: "setting-item-description",
+		});
 	}
 
 	private displayKeyBindings(containerEl: HTMLElement): void {

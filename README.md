@@ -1,4 +1,4 @@
-# Vimium+
+# Vimium++
 
 A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 
@@ -25,12 +25,39 @@ A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 | `/` | Search the current file. |
 | `t` | Open a new tab. |
 | `x` / `Shift`+`X` | Close the current tab / restore closed tabs. |
+| `e` | Toggle the file explorer (focus it, revealing the active note). |
 | `i` | Enter editing mode (focus the editor; native Vim active). |
 | `Esc` | (In editing mode) leave Vim insert/visual/replace for normal mode; in normal mode, return to Reading mode. |
 
-Any key — or a multi-key sequence like `gT` — can be bound to any command-palette command under **Settings → Vimium+ → Custom key bindings**. Type the keys as plain text; each character is one keypress. Two bindings ship by default: `o` (quick switcher) and `p` (command palette) — remap or remove them as you like. Custom bindings take priority over the built-in keys above; the settings dialog asks for confirmation before you shadow a built-in (or start a sequence with one, which delays it by the chord timeout).
+Any key — or a multi-key sequence like `gT` — can be bound to any command-palette command under **Settings → Vimium++ → Custom key bindings**. Type the keys as plain text; each character is one keypress. Two bindings ship by default: `o` (quick switcher) and `p` (command palette) — remap or remove them as you like. Custom bindings take priority over the built-in keys above; the settings dialog asks for confirmation before you shadow a built-in (or start a sequence with one, which delays it by the chord timeout).
 
 While hints are showing: type the label to activate, `Backspace` to correct, `Esc` to cancel. Holding `Shift` on the **last** letter of a label opens that target in a new tab (even if you started with plain `f`).
+
+## File explorer
+
+The built-in file explorer gets a neo-tree-style key layer while it has focus. Press `e` in Reading mode (or run **Toggle file explorer** from the command palette) to focus it, then:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Move down / up. |
+| `h` / `l` | Collapse the folder / open the file or expand the folder. |
+| `Enter` | Open the file. On a folder it opens the folder note (when enabled), expands it, or toggles it, depending on the settings below. |
+| `Ctrl`/`Cmd`+`Enter`, `Shift`+`Enter` | Always open the focused folder's folder note. |
+| `gg` / `Shift`+`G` | Jump to the first / last item. |
+| `z` | Collapse all folders. |
+| `a` / `Shift`+`A` | Create a file / folder (end a file name with `/` to create a folder). |
+| `d` / `r` / `m` | Delete / rename / move. |
+| `c` | Copy to a path. |
+| `x` / `y` / `p` | Cut / copy / paste. |
+| `u` | Undo the last file operation. |
+| `s` / `Shift`+`S` / `t` | Open in a vertical split / horizontal split / new tab. |
+| `q` / `Esc` | Close the explorer / focus the editor again. |
+
+File operations use Obsidian's own vault and file-manager APIs, so links are updated on rename/move and deletes follow your trash settings. Deletes can be undone from the plugin's in-memory snapshot (up to 50 operations / 50 MB).
+
+If you use the **Folder Notes** plugin, folder-note files that it hides from the explorer are skipped by `j`/`k`, `gg`/`G`, and folder expansion, so navigation only lands on rows you can actually see. Folder notes you have chosen to show in the explorer still work normally. For the same reason, files whose type Obsidian does not support (for example `.txt`, `.yml`, `.js`) are skipped while **Show unsupported files** is off in Obsidian's settings.
+
+Two settings control folder notes on `Enter`: **Open folder note on Enter** (on by default) makes plain `Enter` open a folder's note; turn it off to require `Ctrl`/`Cmd`+`Enter` or `Shift`+`Enter`. **Expand folder on Enter** makes `Enter` expand a folder instead of toggling it, and expands the folder before opening its note.
 
 ## Web viewer tabs
 
@@ -48,7 +75,7 @@ Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim 
 
 ## Settings
 
-Hint characters, hint font size, scroll step, force-Reading-view toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, and the list of CSS selectors that become hint targets.
+Hint characters, hint font size, scroll step, force-Reading-view toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, and the list of CSS selectors that become hint targets.
 
 ## Build
 
@@ -65,15 +92,15 @@ npm run build    # type-check + production bundle
 Copy (or symlink) `manifest.json`, `main.js`, and `styles.css` into:
 
 ```
-<your-vault>/.obsidian/plugins/vimium-plus/
+<your-vault>/.obsidian/plugins/vimium-plus-plus/
 ```
 
-Then enable **Vimium+** under Settings → Community plugins (turn on community plugins first if needed).
+Then enable **Vimium++** under Settings → Community plugins (turn on community plugins first if needed).
 
 For active development, symlink the repo so each rebuild is picked up:
 
 ```bash
-ln -s "$(pwd)" "<your-vault>/.obsidian/plugins/vimium-plus"
+ln -s "$(pwd)" "<your-vault>/.obsidian/plugins/vimium-plus-plus"
 ```
 
 …and reload Obsidian (or use the Hot-Reload plugin) after each build.

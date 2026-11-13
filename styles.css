@@ -88,3 +88,24 @@
 	background: rgba(var(--color-blue-rgb), 0.18);
 	color: var(--color-blue);
 }
+
+/* Prompt modal used by explorer actions (new file, rename, move, copy). */
+.vimium-prompt {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.vimium-prompt-prefix {
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	white-space: nowrap;
+}
+
+.vimium-prompt-input {
+	flex: 1;
+}
+
+.vimium-prompt + .setting-item-description {
+	margin-top: var(--size-4-2);
+}
