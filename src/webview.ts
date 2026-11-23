@@ -25,7 +25,7 @@ function isWebview(el: Element | null | undefined): el is WebviewTag {
 interface TrackedWebview {
 	leaf: WorkspaceLeaf;
 	onDomReady: () => void;
-	onConsole: (e: Event) => void;
+	onTitle: (e: Event) => void;
 }
 
 const MESSAGE_PREFIX = "__vimium_plus__:";
@@ -34,10 +34,10 @@ const MESSAGE_PREFIX = "__vimium_plus__:";
  * Host side of the Web viewer integration: injects the self-contained guest
  * script (src/webview-inject.ts) into every `<webview>`, re-injects on each
  * navigation (`dom-ready`), forwards built-in actions into the guest, and
- * listens for the guest's whitelisted console messages.
+ * listens for the guest's whitelisted title-based messages.
  *
  * SECURITY INVARIANT: the guest script runs in the page's main world, so any
- * page can forge its console messages. Message handling below must stay
+ * page can forge its title messages. Message handling below must stay
  * limited to benign, fixed actions — never execute arbitrary command ids and
  * never terminal commands on behalf of a guest message.
  */
@@ -90,10 +90,10 @@ export class WebviewBridge {
 				if (this.relayWebview === webview) this.relayWebview = null;
 				this.inject(webview);
 			};
-			const onConsole = (e: Event) => this.onConsoleMessage(webview, e);
+			const onTitle = (e: Event) => this.onTitleMessage(webview, e);
 			webview.addEventListener("dom-ready", onDomReady);
-			webview.addEventListener("console-message", onConsole);
-			this.tracked.set(webview, { leaf, onDomReady, onConsole });
+			webview.addEventListener("page-title-updated", onTitle);
+			this.tracked.set(webview, { leaf, onDomReady, onTitle });
 			// The webview may not be attached yet; dom-ready will retry.
 			this.inject(webview);
 		});
@@ -171,7 +171,7 @@ export class WebviewBridge {
 		for (const [webview, entry] of this.tracked) {
 			if (webview.isConnected) continue;
 			webview.removeEventListener("dom-ready", entry.onDomReady);
-			webview.removeEventListener("console-message", entry.onConsole);
+			webview.removeEventListener("page-title-updated", entry.onTitle);
 			this.tracked.delete(webview);
 			if (this.relayWebview === webview) this.relayWebview = null;
 		}
@@ -183,7 +183,7 @@ export class WebviewBridge {
 		for (const [webview, entry] of this.tracked) {
 			void this.callGuest(webview, ".destroy()");
 			webview.removeEventListener("dom-ready", entry.onDomReady);
-			webview.removeEventListener("console-message", entry.onConsole);
+			webview.removeEventListener("page-title-updated", entry.onTitle);
 		}
 		this.tracked.clear();
 	}
@@ -249,8 +249,8 @@ export class WebviewBridge {
 		};
 	}
 
-	private onConsoleMessage(webview: WebviewTag, e: Event): void {
-		const raw = (e as Event & { message?: unknown }).message;
+	private onTitleMessage(webview: WebviewTag, e: Event): void {
+		const raw = (e as Event & { title?: unknown }).title;
 		if (typeof raw !== "string" || !raw.startsWith(MESSAGE_PREFIX)) return;
 		let msg: Record<string, unknown>;
 		try {

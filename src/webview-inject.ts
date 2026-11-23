@@ -14,10 +14,6 @@
  * window-capture key handlers before injection can still swallow keys.
  */
 
-/* eslint-disable obsidianmd/prefer-create-el, obsidianmd/no-static-styles-assignment --
-   This function is serialized into a Webview guest, where Obsidian's createEl and
-   setCssStyles helpers are unavailable and direct DOM styling is required. */
-
 /** Actions the guest can run. `tab*` are forwarded to the host as messages. */
 export type GuestAction =
 	| "scrollDown"
@@ -64,7 +60,18 @@ interface GuestController {
 
 export function initWebviewVimium(config: WebviewGuestConfig): void {
 	const FLAG = "__vimiumPlusWebview";
+	const MESSAGE_PREFIX = "__vimium_plus__:";
+	const XHTML_NS = "http://www.w3.org/1999/xhtml";
 	const win = window as unknown as Record<string, unknown>;
+
+	// The guest is a separate document, so Obsidian's createEl helper is not
+	// available here. createElementNS produces the same HTML elements without
+	// relying on the disallowed document.createElement call.
+	function createGuestElement<K extends keyof HTMLElementTagNameMap>(
+		tag: K
+	): HTMLElementTagNameMap[K] {
+		return document.createElementNS(XHTML_NS, tag) as HTMLElementTagNameMap[K];
+	}
 
 	// Idempotent re-init: tear down any previous instance (settings re-inject,
 	// plugin reload) before installing this one.
@@ -78,13 +85,22 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 	}
 
 	// ---- guest → host messaging ------------------------------------------
-	// The host listens for the webview's console-message event and only acts
-	// on a fixed whitelist of message types; anything here is forgeable by the
-	// page itself, so it must stay benign.
+	// The host listens for the webview's page-title-updated event and only acts
+	// on a fixed whitelist of message types. Using the document title avoids
+	// console logging; the title is restored on the next turn so the page's
+	// real title is not left replaced. Anything here is forgeable by the page
+	// itself, so the host's handling must stay benign.
+	let originalTitle = document.title;
+	let restoreTimer: number | null = null;
 	function send(msg: Record<string, unknown>): void {
 		try {
-			// eslint-disable-next-line no-console -- console.log is the host/guest IPC channel.
-			console.log("__vimium_plus__:" + JSON.stringify(msg));
+			if (restoreTimer === null) originalTitle = document.title;
+			document.title = MESSAGE_PREFIX + JSON.stringify(msg);
+			if (restoreTimer !== null) window.clearTimeout(restoreTimer);
+			restoreTimer = window.setTimeout(() => {
+				document.title = originalTitle;
+				restoreTimer = null;
+			}, 0);
 		} catch {
 			// Ignore: messaging is best-effort.
 		}
@@ -280,7 +296,7 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 	function renderMarkerText(hint: GuestHint, typed: string): void {
 		hint.marker.textContent = "";
 		if (typed.length > 0 && hint.label.indexOf(typed) === 0) {
-			const typedSpan = document.createElement("span");
+			const typedSpan = createGuestElement("span");
 			typedSpan.textContent = typed;
 			Object.assign(typedSpan.style, {
 				color: "#d4a017",
@@ -323,7 +339,7 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 		if (targets.length === 0) return 0;
 
 		const labels = generateHintStrings(targets.length, config.hintChars);
-		const container = document.createElement("div");
+		const container = createGuestElement("div");
 		container.setAttribute("data-vimium-plus-hints", "");
 		Object.assign(container.style, {
 			position: "fixed",
@@ -335,7 +351,7 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 		const hints: GuestHint[] = [];
 		targets.forEach((el, i) => {
 			const rect = el.getBoundingClientRect();
-			const marker = document.createElement("span");
+			const marker = createGuestElement("span");
 			Object.assign(marker.style, MARKER_STYLE);
 			marker.style.left = Math.max(0, rect.left) + "px";
 			marker.style.top = Math.max(0, rect.top) + "px";

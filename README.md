@@ -159,31 +159,3 @@ npm run build    # type-check + production bundle
 npm version patch
 npm run release
 ```
-
-## Install into a vault
-
-Copy (or symlink) `manifest.json`, `main.js`, and `styles.css` into:
-
-```
-<your-vault>/.obsidian/plugins/vimium-plus-plus/
-```
-
-Then enable **Vimium++** under Settings → Community plugins (turn on community plugins first if needed).
-
-For active development, symlink the repo so each rebuild is picked up:
-
-```bash
-ln -s "$(pwd)" "<your-vault>/.obsidian/plugins/vimium-plus-plus"
-```
-
-…and reload Obsidian (or use the Hot-Reload plugin) after each build.
-
-## Verify it works
-
-1. Open any note → it appears in **Reading view**.
-2. `j`/`k` scroll; `d`/`u` half-page; `gg`/`G` top/bottom; `Shift`+`J`/`Shift`+`K` switch tabs.
-3. Press `f` → hint letters appear over links/buttons (in the note **and** on tabs/ribbon/file tree); type a label to click it; `Esc` cancels. `Shift`+`F` opens the link in a new tab.
-4. Press `i` → the note switches to the editor, focused, with native Vim (`h j k l`, `i` to insert).
-5. `Esc` in normal mode → back to Reading mode; in insert/visual mode it returns Vim to normal first.
-6. Press `Space` → the which-key popup lists `f`, `q`, and `w`; `Space` `f` `f` opens the quick switcher; `Esc` cancels the sequence.
-7. Typing in the search box is **not** hijacked by `j`/`k`/`f`.
