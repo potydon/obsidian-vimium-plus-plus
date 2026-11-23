@@ -81,7 +81,18 @@ These features extend Obsidian's native Vim mode while editing a note. They foll
 | `gg` / `G` in a table cell | Jump to the first / last row of the current table, keeping the current column. |
 | `0` / `^` / `$` in a table cell | Jump to the first column, first non-empty cell, or last column of the current row. |
 | `H` / `M` / `L` in a table cell | Jump to the top / middle / bottom visible row of the current table, keeping the current column. |
-| `i` / `a` / `c` / `s` in a table cell | Open the highlighted cell in insert, append, change, or substitute mode. |
+| `i` in a table cell | Open the highlighted cell in Vim normal mode, cursor at the front. |
+| `a` in a table cell | Open the highlighted cell in Vim normal mode, cursor at the back. |
+| `I` / `A` in a table cell | Open the highlighted cell in insert or append mode. |
+| `dd` in a table cell | Empty the highlighted cell and stay in table navigation. |
+| `cc` in a table cell | Empty the highlighted cell and enter insert mode. |
+| `s` in a table cell | Substitute: empty the highlighted cell and enter insert mode. |
+| `dr` / `rd` in a table cell | Delete the highlighted row. |
+| `dc` / `cd` in a table cell | Delete the highlighted column. |
+| `ra` / `ro` in a table cell | Add a new row below the current row. |
+| `ri` / `rO` in a table cell | Add a new row above the current row. |
+| `ca` / `co` in a table cell | Add a new column to the right of the current column. |
+| `ci` / `cO` in a table cell | Add a new column to the left of the current column. |
 | `Enter` in a table cell | Open the highlighted cell in Vim normal mode. |
 | `Escape` in a table cell | Leave the cell editor and return to cell navigation, or exit the table. |
 

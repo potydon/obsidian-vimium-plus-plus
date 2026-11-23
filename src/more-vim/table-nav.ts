@@ -22,7 +22,8 @@ export type TableEntryMode =
 	| "insert-append"
 	| "change"
 	| "substitute"
-	| "normal";
+	| "normal"
+	| "normal-end";
 
 type NavState = "inactive" | "nav" | "edit";
 type Placement = "before" | "after";
@@ -56,7 +57,18 @@ interface EditViewLike {
 
 interface TableEditorLike {
 	rows?: readonly (readonly unknown[])[];
+	alignments?: readonly (string | null | undefined)[];
+	editor?: EditViewLike;
 	getCellAt(row: number, col: number): TableCellLike | null;
+	insertRow?(row: number, col: number, duplicate?: boolean): void;
+	insertColumn?(
+		row: number,
+		col: number,
+		alignment?: string | null,
+		duplicate?: boolean
+	): void;
+	removeRow?(row: number, col: number): void;
+	removeColumn?(row: number, col: number): void;
 	receiveCellFocus?(row: number, col: number): void;
 	setCellFocus?(row: number, col: number): void;
 	placeCursorAround?(placement: Placement): void;
@@ -93,6 +105,7 @@ const ACTIVE_CLASS = "vimium-table-nav-active";
 const TABLE_BLANK_CLASS = "vimium-table-leading-blank";
 const ENTRY_DELAY_MS = 100;
 const ENTRY_DEBOUNCE_MS = 80;
+const STRUCTURE_REFRESH_MS = 30;
 
 const DIRECTION_KEYS: Record<string, Direction> = {
 	h: "h",
@@ -167,7 +180,8 @@ function buildTableBlankDecorations(view: EditorView): DecorationSet {
  * Obsidian gives each table cell its own editor. When one is open in Vim normal
  * mode, we hide that editor, own the keyboard from Vimium++'s capture listener,
  * and move a highlighted cell through the rendered widget. `i`/`Enter` then
- * reveals the cell editor again and hands the key to its Vim instance.
+ * reveal the cell editor in normal mode, `a` does the same with the cursor at
+ * the end, and `I`/`A` reveal it in insert mode.
  */
 export class TableNav {
 	private state: NavState = "inactive";
@@ -181,6 +195,7 @@ export class TableNav {
 	private col = 0;
 	private countBuffer = "";
 	private gPending = false;
+	private prefix: "d" | "r" | "c" | null = null;
 	private entryMode: TableEntryMode | null = null;
 	private entryKeys: string[] = [];
 	private entryTimer: number | null = null;
@@ -193,6 +208,7 @@ export class TableNav {
 	private entryAttempts = 0;
 	private deferredActivation: number | null = null;
 	private deferredView: EditorView | null = null;
+	private structureRefreshTimer: number | null = null;
 
 	constructor(
 		private readonly app: App,
@@ -210,6 +226,9 @@ export class TableNav {
 
 	/** Called by the CodeMirror activation extension on caret/focus changes. */
 	onViewUpdate(view: EditorView): void {
+		// An external selection change (click, scroll, another plugin) cancels a
+		// half-typed prefix sequence.
+		if (this.state === "nav") this.prefix = null;
 		if (!this.isEnabled() || this.state !== "inactive") return;
 		const ctx = this.getContext();
 		if (!ctx || ctx.cmView !== view || !this.mainVimIdle(ctx)) return;
@@ -392,6 +411,7 @@ export class TableNav {
 		this.col = active.col;
 		this.countBuffer = "";
 		this.gPending = false;
+		this.prefix = null;
 		this.entryMode = null;
 		this.entryKeys = [];
 
@@ -413,6 +433,10 @@ export class TableNav {
 
 	private handleNavKey(event: KeyboardEvent, ctx: ActiveContext): boolean {
 		if (event.ctrlKey || event.altKey || event.metaKey) return false;
+
+		// A pending d/r/c prefix owns the next key completely. This is how
+		// dd, cc, dr/rd, dc/cd and the row/column insert sequences work.
+		if (this.prefix) return this.handlePrefixKey(event.key, ctx);
 
 		if (/^[1-9]$/.test(event.key) || (this.countBuffer && event.key === "0")) {
 			this.countBuffer += event.key;
@@ -467,14 +491,25 @@ export class TableNav {
 			case "L":
 				this.moveToWindowRow(event.key);
 				return true;
+			case "d":
+			case "r":
+			case "c":
+				this.gPending = false;
+				this.prefix = event.key;
+				return true;
 			case "i":
-				this.enterCellEdit("insert", ctx);
+				// Normal mode, cursor at the front of the cell.
+				this.enterCellEdit("normal", ctx);
 				return true;
 			case "a":
-				this.enterCellEdit("insert-append", ctx);
+				// Normal mode, cursor at the back of the cell.
+				this.enterCellEdit("normal-end", ctx);
 				return true;
-			case "c":
-				this.enterCellEdit("change", ctx);
+			case "I":
+				this.enterCellEdit("insert", ctx);
+				return true;
+			case "A":
+				this.enterCellEdit("insert-append", ctx);
 				return true;
 			case "s":
 				this.enterCellEdit("substitute", ctx);
@@ -486,6 +521,65 @@ export class TableNav {
 				// The hidden cell editor is still connected. Any typed key must
 				// be swallowed, or it would land in the Markdown source.
 				return typesIntoCell(event);
+		}
+	}
+
+	/** Interpret the key that follows a pending d/r/c prefix. */
+	private handlePrefixKey(key: string, ctx: ActiveContext): boolean {
+		const prefix = this.prefix;
+		this.prefix = null;
+		if (key === "Escape") return true;
+
+		if (prefix === "d") {
+			switch (key) {
+				case "d":
+					this.clearCell();
+					return true;
+				case "r":
+					this.deleteRow();
+					return true;
+				case "c":
+					this.deleteColumn();
+					return true;
+				default:
+					return true;
+			}
+		}
+		if (prefix === "r") {
+			switch (key) {
+				case "d":
+					this.deleteRow();
+					return true;
+				case "a":
+				case "o":
+					this.insertRow("below");
+					return true;
+				case "i":
+				case "O":
+					this.insertRow("above");
+					return true;
+				default:
+					return true;
+			}
+		}
+		// prefix === "c"
+		switch (key) {
+			case "c":
+				this.enterCellEdit("change", ctx);
+				return true;
+			case "d":
+				this.deleteColumn();
+				return true;
+			case "a":
+			case "o":
+				this.insertColumn("right");
+				return true;
+			case "i":
+			case "O":
+				this.insertColumn("left");
+				return true;
+			default:
+				return true;
 		}
 	}
 
@@ -539,6 +633,7 @@ export class TableNav {
 		wrap: boolean
 	): void {
 		if (this.state !== "nav" || !this.view) return;
+		this.prefix = null;
 		const table = this.currentTable();
 		if (!table) return;
 
@@ -587,6 +682,7 @@ export class TableNav {
 	/** Move the highlight and the hidden cell editor to one cell. */
 	private moveToCell(row: number, col: number): void {
 		if (this.state !== "nav" || !this.view) return;
+		this.prefix = null;
 		const table = this.currentTable();
 		if (!table) return;
 		const rowCount = table.rows?.length ?? 0;
@@ -604,6 +700,154 @@ export class TableNav {
 	private jumpToRow(edge: "first" | "last"): void {
 		const rowCount = this.currentTable()?.rows?.length ?? 0;
 		this.moveToCell(edge === "first" ? 0 : rowCount - 1, this.col);
+	}
+
+	/** `dd`: empty the highlighted cell without leaving table navigation. */
+	private clearCell(): void {
+		const cell = this.currentCell();
+		const view = cell?.cm as EditorView | undefined;
+		if (view) {
+			const length = view.state.doc.length;
+			if (length > 0) {
+				view.dispatch({
+					changes: { from: 0, to: length, insert: "" },
+					selection: { anchor: 0 },
+				});
+			}
+		} else {
+			const offsets = cell?.cell.getAbsoluteOffsets?.();
+			if (offsets && this.view && offsets.textEnd > offsets.textStart) {
+				this.view.dispatch({
+					changes: {
+						from: offsets.textStart,
+						to: offsets.textEnd,
+						insert: "",
+					},
+				});
+			}
+		}
+		this.afterStructureChange(this.row, this.col);
+	}
+
+	/** `dr` / `rd`: delete the highlighted row. */
+	private deleteRow(): void {
+		const table = this.currentTable();
+		if (!table?.removeRow) return;
+		const row = this.row;
+		const col = this.col;
+		try {
+			table.removeRow(row, col);
+		} catch {
+			return;
+		}
+		if (!this.tableStillExists()) {
+			this.exitTable(null);
+			return;
+		}
+		this.afterStructureChange(Math.max(0, row - 1), col);
+	}
+
+	/** `dc` / `cd`: delete the highlighted column. */
+	private deleteColumn(): void {
+		const table = this.currentTable();
+		if (!table?.removeColumn) return;
+		const row = this.row;
+		const col = this.col;
+		try {
+			table.removeColumn(row, col);
+		} catch {
+			return;
+		}
+		if (!this.tableStillExists()) {
+			this.exitTable(null);
+			return;
+		}
+		this.afterStructureChange(row, Math.max(0, col - 1));
+	}
+
+	private tableStillExists(): boolean {
+		if (!this.view) return false;
+		return findTableRanges(this.view.state).some(
+			(table) => table.from === this.tableFrom
+		);
+	}
+
+	/** Table-local row insert: `ra`/`ro` below, `ri`/`rO` above. */
+	private insertRow(where: "above" | "below"): void {
+		const table = this.currentTable();
+		if (!table?.insertRow) return;
+		const row = where === "below" ? this.row + 1 : this.row;
+		try {
+			table.insertRow(row, this.col);
+		} catch {
+			return;
+		}
+		this.afterStructureChange(row, this.col);
+	}
+
+	/** Table-local column insert: `ca`/`co` right, `ci`/`cO` left. */
+	private insertColumn(where: "left" | "right"): void {
+		const table = this.currentTable();
+		if (!table?.insertColumn) return;
+		const col = where === "right" ? this.col + 1 : this.col;
+		const alignment = table.alignments?.[this.col] ?? null;
+		try {
+			table.insertColumn(this.row, col, alignment);
+		} catch {
+			return;
+		}
+		this.afterStructureChange(this.row, col);
+	}
+
+	/**
+	 * The native row/column insert rebuilds the table widget and opens the new
+	 * cell editor. Wait for that rebuild, then hide the editor and restore the
+	 * navigation overlay on the inserted cell.
+	 */
+	private afterStructureChange(row: number, col: number): void {
+		this.row = row;
+		this.col = col;
+		this.hideCellEditor(this.currentCell());
+		this.clearStructureRefresh();
+		this.structureRefreshTimer = window.setTimeout(() => {
+			this.structureRefreshTimer = null;
+			this.refreshStructure();
+		}, STRUCTURE_REFRESH_MS);
+	}
+
+	private clearStructureRefresh(): void {
+		if (this.structureRefreshTimer === null) return;
+		window.clearTimeout(this.structureRefreshTimer);
+		this.structureRefreshTimer = null;
+	}
+
+	private refreshStructure(): void {
+		if (this.state !== "nav" || !this.view) return;
+		if (!this.tableStillExists()) {
+			this.exitTable(null);
+			return;
+		}
+
+		// Obsidian may have swapped in a new widget, and the cell editor may
+		// now belong to a different table instance. Resolve both afresh.
+		const widgetEl = this.freshWidgetEl();
+		const table =
+			(widgetEl ? tableEditorFromWidget(widgetEl) : null) ??
+			this.currentTable();
+		if (!table) return;
+
+		const rowCount = table.rows?.length ?? 0;
+		const colCount = table.rows?.[0]?.length ?? 0;
+		if (rowCount > 0) this.row = Math.max(0, Math.min(rowCount - 1, this.row));
+		if (colCount > 0) this.col = Math.max(0, Math.min(colCount - 1, this.col));
+
+		const cell = this.currentCell() ?? table.editor?.tableCell ?? null;
+		this.hideCellEditor(cell);
+		widgetEl?.classList.add(NAV_CLASS);
+		this.highlightCell(table);
+		this.scrollCellIntoView(table);
+		if (this.view) this.focusMainEditor(this.view);
+		this.onStateChange();
 	}
 
 	/** Table-local `^`: first cell in the row with visible text. */
@@ -743,6 +987,7 @@ export class TableNav {
 	// ---- cell editor handoff ---------------------------------------------
 
 	private enterCellEdit(mode: TableEntryMode, ctx: ActiveContext): void {
+		this.prefix = null;
 		const active = this.findActiveTable(ctx);
 		if (!active) {
 			this.exitTable("before");
@@ -846,15 +1091,19 @@ export class TableNav {
 			return;
 		}
 
-		const entryKey: Record<TableEntryMode, string | null> = {
-			insert: "i",
-			"insert-append": "A",
-			change: "cc",
-			substitute: "S",
-			normal: null,
+		const entryKeys: Record<TableEntryMode, readonly string[]> = {
+			// Force normal mode first, in case Obsidian created the cell editor
+			// in insert mode. Harmless when it is already normal.
+			insert: ["<Esc>", "i"],
+			"insert-append": ["<Esc>", "A"],
+			change: ["<Esc>", "cc"],
+			substitute: ["<Esc>", "S"],
+			// Normal mode at the first character of the cell.
+			normal: ["<Esc>", "0"],
+			// Normal mode on the last character of the cell.
+			"normal-end": ["<Esc>", "$"],
 		};
-		const first = entryKey[mode];
-		if (first) this.vim.send(adapter, first);
+		for (const key of entryKeys[mode]) this.vim.send(adapter, key);
 
 		for (const key of held) {
 			if (this.vim.send(adapter, key)) continue;
@@ -881,6 +1130,7 @@ export class TableNav {
 		this.entryKeys = [];
 		this.countBuffer = "";
 		this.gPending = false;
+		this.prefix = null;
 
 		const cell = this.currentCell();
 		if (cell) {
@@ -1108,10 +1358,12 @@ export class TableNav {
 			: null;
 
 		this.clearEntryTimer();
+		this.clearStructureRefresh();
 		this.entryMode = null;
 		this.entryKeys = [];
 		this.countBuffer = "";
 		this.gPending = false;
+		this.prefix = null;
 		this.removeHighlight();
 		widgetEl?.classList.remove(NAV_CLASS);
 		this.showCellEditor(this.currentCell());
