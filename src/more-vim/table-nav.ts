@@ -2,8 +2,15 @@ import {
 	EditorSelection,
 	type EditorState,
 	type Extension,
+	type Range,
 } from "@codemirror/state";
-import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import {
+	Decoration,
+	EditorView,
+	type DecorationSet,
+	ViewPlugin,
+	type ViewUpdate,
+} from "@codemirror/view";
 import { editorInfoField, MarkdownView, type App } from "obsidian";
 import type { ActiveContext } from "./context";
 import type { VimAdapter, VimPos } from "./vim";
@@ -83,6 +90,7 @@ const TABLE_RE = /^\s*\|/;
 const HIDDEN_CLASS = "vimium-table-cell-hidden";
 const NAV_CLASS = "vimium-table-nav-mode";
 const ACTIVE_CLASS = "vimium-table-nav-active";
+const TABLE_BLANK_CLASS = "vimium-table-leading-blank";
 const ENTRY_DELAY_MS = 100;
 const ENTRY_DEBOUNCE_MS = 80;
 
@@ -117,6 +125,43 @@ export function tableNavActivation(
 }
 
 /**
+ * Mark the blank line Obsidian requires above a table. The line stays in the
+ * document; CSS collapses it visually when the setting is enabled.
+ */
+export function tableLeadingBlankDecoration(): Extension {
+	return ViewPlugin.fromClass(
+		class {
+			decorations: DecorationSet;
+
+			constructor(view: EditorView) {
+				this.decorations = buildTableBlankDecorations(view);
+			}
+
+			update(update: ViewUpdate): void {
+				if (update.docChanged || update.viewportChanged) {
+					this.decorations = buildTableBlankDecorations(update.view);
+				}
+			}
+		},
+		{ decorations: (plugin) => plugin.decorations }
+	);
+}
+
+function buildTableBlankDecorations(view: EditorView): DecorationSet {
+	const ranges: Range<Decoration>[] = [];
+	for (const table of findTableRanges(view.state)) {
+		const startLine = view.state.doc.lineAt(table.from).number;
+		if (startLine <= 1) continue;
+		const previous = view.state.doc.line(startLine - 1);
+		if (previous.text.trim().length !== 0) continue;
+		ranges.push(
+			Decoration.line({ class: TABLE_BLANK_CLASS }).range(previous.from)
+		);
+	}
+	return Decoration.set(ranges, true);
+}
+
+/**
  * Modal table navigation for Obsidian's native Live Preview table widget.
  *
  * Obsidian gives each table cell its own editor. When one is open in Vim normal
@@ -135,6 +180,7 @@ export class TableNav {
 	private row = 0;
 	private col = 0;
 	private countBuffer = "";
+	private gPending = false;
 	private entryMode: TableEntryMode | null = null;
 	private entryKeys: string[] = [];
 	private entryTimer: number | null = null;
@@ -192,6 +238,10 @@ export class TableNav {
 				this.cancelDeferredActivation();
 				return false;
 			}
+			// Crossing into a table from the line right above it is unreliable:
+			// CodeMirror treats the rendered table widget as one display line and
+			// jumps straight past it. Own that boundary key ourselves.
+			if (this.tryEnterFromBoundary(event, ctx)) return true;
 			if (!this.tryEnter(ctx)) {
 				// A j/k from just outside a table creates the cell editor only
 				// after this capture listener has run. Re-check once the native
@@ -253,7 +303,50 @@ export class TableNav {
 		this.scheduleActivation(ctx);
 	}
 
-	private scheduleActivation(ctx: ActiveContext): void {
+	/**
+	 * Enter a table when a vertical key moves in from the immediately adjacent
+	 * line. Both arrow keys and Vim's h/j/k/l reach this listener, so this fixes
+	 * the "Down from above skips the whole table" case for every vertical key.
+	 */
+	private tryEnterFromBoundary(
+		event: KeyboardEvent,
+		ctx: ActiveContext
+	): boolean {
+		if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
+			return false;
+		}
+		const direction = DIRECTION_KEYS[event.key];
+		if (direction !== "j" && direction !== "k") return false;
+
+		const { state } = ctx.cmView;
+		const headLine = state.doc.lineAt(state.selection.main.head).number;
+		const table = findTableRanges(state).find((range) => {
+			const startLine = state.doc.lineAt(range.from).number;
+			const endLine = state.doc.lineAt(range.to).number;
+			// Step over the blank line Markdown requires above a table.
+			return direction === "j"
+				? blankLinesBetween(state, headLine + 1, startLine)
+				: blankLinesBetween(state, endLine + 1, headLine);
+		});
+		if (!table) return false;
+
+		const widgetEl = findTableWidgetElement(ctx.cmView, table.from);
+		const editor = widgetEl ? tableEditorFromWidget(widgetEl) : null;
+		if (!editor) return false;
+		const rowCount = editor.rows?.length ?? 0;
+		if (rowCount === 0) return false;
+		const row = direction === "j" ? 0 : rowCount - 1;
+		const cell = editor.getCellAt(row, 0);
+		if (!cell) return false;
+
+		// Move the real cursor into the cell so Obsidian opens its editor, then
+		// let the usual deferred activation take over once that editor exists.
+		this.moveMainCursorToCell(cell, ctx.cmView);
+		this.scheduleActivation(ctx);
+		return true;
+	}
+
+	private scheduleActivation(ctx: ActiveContext, attempt = 0): void {
 		if (this.deferredActivation !== null) {
 			if (this.deferredView === ctx.cmView) return;
 			this.cancelDeferredActivation();
@@ -270,7 +363,11 @@ export class TableNav {
 			if (!fresh || fresh.cmView !== view || !this.mainVimIdle(fresh)) {
 				return;
 			}
-			this.tryEnter(fresh);
+			// Obsidian may create the cell editor a little later than the
+			// selection change. Retry briefly instead of dropping the entry.
+			if (!this.tryEnter(fresh) && attempt < 3) {
+				this.scheduleActivation(fresh, attempt + 1);
+			}
 		}, ENTRY_DEBOUNCE_MS);
 	}
 
@@ -294,6 +391,7 @@ export class TableNav {
 		this.row = active.row;
 		this.col = active.col;
 		this.countBuffer = "";
+		this.gPending = false;
 		this.entryMode = null;
 		this.entryKeys = [];
 
@@ -322,6 +420,23 @@ export class TableNav {
 		}
 		const count = this.consumeCount();
 
+		// Plain characters are swallowed below to protect the hidden cell
+		// editor, so Vim's `gg`/`G` never reach it. Handle them as table-local
+		// motions: first row / last row.
+		if (event.key === "g" || event.key === "G") {
+			if (event.key === "G") {
+				this.gPending = false;
+				this.jumpToRow("last");
+			} else if (this.gPending) {
+				this.gPending = false;
+				this.jumpToRow("first");
+			} else {
+				this.gPending = true;
+			}
+			return true;
+		}
+		this.gPending = false;
+
 		if (event.key === "Escape") {
 			this.exitTable("before");
 			return true;
@@ -338,6 +453,20 @@ export class TableNav {
 		}
 
 		switch (event.key) {
+			case "0":
+				this.moveToCell(this.row, 0);
+				return true;
+			case "^":
+				this.moveToCell(this.row, this.firstNonBlankColumn());
+				return true;
+			case "$":
+				this.moveToCell(this.row, Number.MAX_SAFE_INTEGER);
+				return true;
+			case "H":
+			case "M":
+			case "L":
+				this.moveToWindowRow(event.key);
+				return true;
 			case "i":
 				this.enterCellEdit("insert", ctx);
 				return true;
@@ -455,6 +584,82 @@ export class TableNav {
 		this.scrollCellIntoView(fresh);
 	}
 
+	/** Move the highlight and the hidden cell editor to one cell. */
+	private moveToCell(row: number, col: number): void {
+		if (this.state !== "nav" || !this.view) return;
+		const table = this.currentTable();
+		if (!table) return;
+		const rowCount = table.rows?.length ?? 0;
+		const colCount = table.rows?.[0]?.length ?? 0;
+		if (rowCount === 0 || colCount === 0) return;
+		this.row = Math.max(0, Math.min(rowCount - 1, row));
+		this.col = Math.max(0, Math.min(colCount - 1, col));
+		this.syncNativeCellFocus(this.row, this.col);
+		const fresh = this.currentTable() ?? table;
+		this.highlightCell(fresh);
+		this.scrollCellIntoView(fresh);
+	}
+
+	/** Table-local `gg` / `G`: jump to the first / last row. */
+	private jumpToRow(edge: "first" | "last"): void {
+		const rowCount = this.currentTable()?.rows?.length ?? 0;
+		this.moveToCell(edge === "first" ? 0 : rowCount - 1, this.col);
+	}
+
+	/** Table-local `^`: first cell in the row with visible text. */
+	private firstNonBlankColumn(): number {
+		const table = this.currentTable();
+		if (!table) return 0;
+		const colCount = table.rows?.[this.row]?.length ?? 0;
+		for (let col = 0; col < colCount; col += 1) {
+			const text = table.getCellAt(this.row, col)?.el?.textContent?.trim() ?? "";
+			if (text.length > 0) return col;
+		}
+		return 0;
+	}
+
+	/** Rows currently inside the editor viewport, for `H` / `M` / `L`. */
+	private visibleRows(table: TableEditorLike): number[] {
+		if (!this.view) return [];
+		const viewport = this.view.scrollDOM.getBoundingClientRect();
+		const rows: number[] = [];
+		const rowCount = table.rows?.length ?? 0;
+		for (let row = 0; row < rowCount; row += 1) {
+			const el = table.getCellAt(row, 0)?.el;
+			if (!el) continue;
+			const rect = el.getBoundingClientRect();
+			if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+				rows.push(row);
+			}
+		}
+		return rows;
+	}
+
+	/** Table-local `H` / `M` / `L`: top / middle / bottom visible row. */
+	private moveToWindowRow(which: "H" | "M" | "L"): void {
+		const table = this.currentTable();
+		if (!table) return;
+		const rows = this.visibleRows(table);
+		if (rows.length === 0) {
+			const rowCount = table.rows?.length ?? 0;
+			const fallback =
+				which === "H"
+					? 0
+					: which === "L"
+						? rowCount - 1
+						: Math.floor((rowCount - 1) / 2);
+			this.moveToCell(fallback, this.col);
+			return;
+		}
+		const index =
+			which === "H"
+				? 0
+				: which === "L"
+					? rows.length - 1
+					: Math.floor((rows.length - 1) / 2);
+		this.moveToCell(rows[index], this.col);
+	}
+
 	/**
 	 * Keep Obsidian's hidden cell editor on the highlighted cell.
 	 *
@@ -512,16 +717,19 @@ export class TableNav {
 	}
 
 	/** Put the main cursor inside the highlighted cell's source range. */
-	private moveMainCursorToCell(cell: TableCellLike | null): void {
-		if (!cell || !this.view) return;
+	private moveMainCursorToCell(
+		cell: TableCellLike | null,
+		view: EditorView | null = this.view
+	): void {
+		if (!cell || !view) return;
 		const offsets = cell.getAbsoluteOffsets?.();
 		if (!offsets) return;
 		let pos = offsets.textStart;
 		if (!Number.isFinite(pos) || pos < offsets.start || pos > offsets.end) {
 			pos = offsets.start;
 		}
-		pos = Math.max(0, Math.min(pos, this.view.state.doc.length));
-		this.view.dispatch({
+		pos = Math.max(0, Math.min(pos, view.state.doc.length));
+		view.dispatch({
 			selection: EditorSelection.single(pos),
 			scrollIntoView: false,
 		});
@@ -567,6 +775,7 @@ export class TableNav {
 		this.entryMode = mode;
 		this.entryKeys = [];
 		this.countBuffer = "";
+		this.gPending = false;
 		this.entryTarget = {
 			row: this.row,
 			col: this.col,
@@ -671,6 +880,7 @@ export class TableNav {
 		this.entryMode = null;
 		this.entryKeys = [];
 		this.countBuffer = "";
+		this.gPending = false;
 
 		const cell = this.currentCell();
 		if (cell) {
@@ -901,6 +1111,7 @@ export class TableNav {
 		this.entryMode = null;
 		this.entryKeys = [];
 		this.countBuffer = "";
+		this.gPending = false;
 		this.removeHighlight();
 		widgetEl?.classList.remove(NAV_CLASS);
 		this.showCellEditor(this.currentCell());
@@ -919,13 +1130,17 @@ export class TableNav {
 		editMode?.destroyTableCell?.();
 
 		window.requestAnimationFrame(() => {
-			if (table?.placeCursorAround) {
+			if (placement === "before" && tableRange) {
+				// Skip the blank separator Obsidian keeps above a table.
+				const pos = cursorPosBeforeTable(view.state, tableRange.from);
+				view.dispatch({
+					selection: EditorSelection.single(pos),
+					effects: EditorView.scrollIntoView(pos, { y: "nearest" }),
+				});
+			} else if (table?.placeCursorAround) {
 				table.placeCursorAround(placement);
 			} else if (tableRange) {
-				const pos =
-					placement === "before"
-						? Math.max(0, tableRange.from - 1)
-						: Math.min(view.state.doc.length, tableRange.to + 1);
+				const pos = Math.min(view.state.doc.length, tableRange.to + 1);
 				view.dispatch({
 					selection: EditorSelection.single(pos),
 					effects: EditorView.scrollIntoView(pos, { y: "nearest" }),
@@ -950,6 +1165,30 @@ export class TableNav {
 }
 
 // ---- helpers -------------------------------------------------------------
+
+/** True when every line in [fromLine, toLine) is blank (or there are none). */
+function blankLinesBetween(
+	state: EditorState,
+	fromLine: number,
+	toLine: number
+): boolean {
+	if (fromLine > toLine) return false;
+	for (let line = fromLine; line < toLine; line += 1) {
+		if (state.doc.line(line).text.trim().length !== 0) return false;
+	}
+	return true;
+}
+
+/** Position of the last real line above a table, skipping blank separators. */
+function cursorPosBeforeTable(state: EditorState, tableFrom: number): number {
+	const startLine = state.doc.lineAt(tableFrom).number;
+	if (startLine <= 1) return 0;
+	let line = startLine - 1;
+	while (line > 1 && state.doc.line(line).text.trim().length === 0) {
+		line -= 1;
+	}
+	return state.doc.line(line).to;
+}
 
 function cursorInRange(ctx: ActiveContext, table: TableRange): boolean {
 	return ctx.cmView.state.selection.ranges.some(

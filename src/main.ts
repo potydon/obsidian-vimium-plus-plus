@@ -50,6 +50,7 @@ export default class VimiumPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.syncTableBlankClass();
 
 		this.modeManager = new ModeManager(this.app, this.settings, () =>
 			this.refreshModeIndicator()
@@ -132,6 +133,8 @@ export default class VimiumPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		document.body.classList.remove("vimium-collapse-table-blank");
+		activeDocument.body.classList.remove("vimium-collapse-table-blank");
 		this.webviewBridge?.destroy();
 		this.hintEngine?.hide();
 		this.leader?.destroy();
@@ -188,10 +191,23 @@ export default class VimiumPlugin extends Plugin {
 		await this.saveData(this.settings);
 		// Keep live webview guests in sync with hint/scroll settings.
 		this.webviewBridge?.reinjectAll();
+		this.syncTableBlankClass();
 		this.syncExplorerKeys();
 		this.leader?.rebuild();
 		this.vimExtras?.syncSettings();
 		this.clearPending();
+	}
+
+	/** Toggle the CSS class that collapses a table's mandatory blank source line. */
+	syncTableBlankClass(): void {
+		const enabled = this.settings.collapseTableLeadingBlank;
+		document.body.classList.toggle("vimium-collapse-table-blank", enabled);
+		if (activeDocument !== document) {
+			activeDocument.body.classList.toggle(
+				"vimium-collapse-table-blank",
+				enabled
+			);
+		}
 	}
 
 	/** Remove or restore the explorer's own Enter handler as the setting changes. */
@@ -389,6 +405,7 @@ export default class VimiumPlugin extends Plugin {
 		// Reading/explorer/editor contexts handled below.
 		if (
 			this.settings.activateOnLeaderKey !== "disabled" &&
+			this.leaderExplorerAllowed() &&
 			this.startLeader(e, true)
 		) {
 			return;
@@ -399,7 +416,7 @@ export default class VimiumPlugin extends Plugin {
 		// editing mode leaves modeManager.mode as "editing".
 		if (this.settings.explorerKeys && this.explorer.isActive()) {
 			if (isEditableTarget()) return;
-			if (this.startLeader(e)) return;
+			if (this.leaderExplorerAllowed() && this.startLeader(e)) return;
 			// Ctrl/Cmd+Enter and Shift+Enter always open the focused folder's
 			// folder note, even when plain Enter is configured not to.
 			if (this.explorer.handleModifiedEnter(e)) {
@@ -457,7 +474,7 @@ export default class VimiumPlugin extends Plugin {
 		// which normally returns above) instead of every pane.
 		if (
 			(this.settings.activateOnLeaderKey === "enabled" ||
-				this.explorer.isActive() ||
+				(this.leaderExplorerAllowed() && this.explorer.isActive()) ||
 				this.app.workspace.getActiveViewOfType(MarkdownView) != null) &&
 			this.startLeader(e)
 		) {
@@ -470,6 +487,11 @@ export default class VimiumPlugin extends Plugin {
 			e.preventDefault();
 			e.stopPropagation();
 		}
+	}
+
+	/** Whether the file explorer may start a leader sequence. */
+	private leaderExplorerAllowed(): boolean {
+		return !this.settings.leaderIgnoreExplorer || !this.explorer.isActive();
 	}
 
 	/**

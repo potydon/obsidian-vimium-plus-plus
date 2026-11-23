@@ -117,6 +117,8 @@ export interface VimiumSettings {
 	expandFolderOnEnter: boolean;
 	/** Ask before `d` deletes a file or folder in the explorer. */
 	confirmDelete: boolean;
+	/** Hide the blank source line Obsidian keeps above a Live Preview table. */
+	collapseTableLeadingBlank: boolean;
 	/** Custom reading-mode key bindings: commands and shell commands. */
 	keyBindings: ReadingBinding[];
 	/** Key that starts a leader sequence. Vim notation, e.g. "<Space>". */
@@ -124,6 +126,9 @@ export interface VimiumSettings {
 	/** Where the leader key starts a sequence: only the usual panes, any
 	 *  non-text focus, or Markdown views only. */
 	activateOnLeaderKey: "disabled" | "enabled" | "markdown_only";
+	/** Leave the file explorer's Space (expand/collapse) alone instead of
+	 *  starting a leader sequence there. */
+	leaderIgnoreExplorer: boolean;
 	/** Key sequences typed after the leader key. */
 	leaderBindings: LeaderBinding[];
 	/** Names for leader prefixes, shown as "+name" in the which-key popup. */
@@ -171,6 +176,7 @@ export const DEFAULT_SETTINGS: VimiumSettings = {
 	modD: true,
 	jkAsGjGk: false,
 	tableNavigation: true,
+	collapseTableLeadingBlank: true,
 	enableWebviewIntegration: true,
 	explorerKeys: true,
 	enterOpensFolderNote: true,
@@ -194,6 +200,7 @@ export const DEFAULT_SETTINGS: VimiumSettings = {
 	],
 	leaderKey: "<Space>",
 	activateOnLeaderKey: "disabled",
+	leaderIgnoreExplorer: true,
 	leaderBindings: [
 		{
 			keys: "ff",
@@ -523,6 +530,15 @@ export class VimiumSettingTab extends PluginSettingTab {
 				},
 			},
 			{
+				name: "Make table's empty line invisible",
+				desc: "Hide the blank line Obsidian keeps above a Live Preview table so it takes no vertical space. The blank line stays in the note; only its display is collapsed. j/k and arrow keys step over it when entering or leaving a table.",
+				control: {
+					type: "toggle",
+					key: "collapseTableLeadingBlank",
+					defaultValue: DEFAULT_SETTINGS.collapseTableLeadingBlank,
+				},
+			},
+			{
 				name: "Included Vim enhancements",
 				desc: "Also enabled: vim surround (ys, ds, cs, visual S), per-cursor motions with multiple cursors (h/j/k/l/w/W/b/B/e/E/$, ^), Mod-Alt-Up/Down vertical cursors, gd/gx link actions, and list-aware o.",
 				searchable: false,
@@ -568,6 +584,15 @@ export class VimiumSettingTab extends PluginSettingTab {
 						markdown_only: "Markdown only",
 					},
 					defaultValue: DEFAULT_SETTINGS.activateOnLeaderKey,
+				},
+			},
+			{
+				name: "Ignore leader in file explorer",
+				desc: "Leave Space to Obsidian's file explorer so it keeps expanding and collapsing folders. On by default. Turn this off if you want leader sequences while the explorer has focus.",
+				control: {
+					type: "toggle",
+					key: "leaderIgnoreExplorer",
+					defaultValue: DEFAULT_SETTINGS.leaderIgnoreExplorer,
 				},
 			},
 			{
@@ -714,6 +739,8 @@ export class VimiumSettingTab extends PluginSettingTab {
 				return s.jkAsGjGk;
 			case "tableNavigation":
 				return s.tableNavigation;
+			case "collapseTableLeadingBlank":
+				return s.collapseTableLeadingBlank;
 			case "enableWebviewIntegration":
 				return s.enableWebviewIntegration;
 			case "explorerKeys":
@@ -730,6 +757,8 @@ export class VimiumSettingTab extends PluginSettingTab {
 				return s.leaderKey;
 			case "activateOnLeaderKey":
 				return s.activateOnLeaderKey;
+			case "leaderIgnoreExplorer":
+				return s.leaderIgnoreExplorer;
 			case "whichKey":
 				return s.whichKey;
 			case "whichKeyDelay":
@@ -787,6 +816,10 @@ export class VimiumSettingTab extends PluginSettingTab {
 			case "tableNavigation":
 				s.tableNavigation = Boolean(value);
 				break;
+			case "collapseTableLeadingBlank":
+				s.collapseTableLeadingBlank = Boolean(value);
+				this.plugin.syncTableBlankClass();
+				break;
 			case "enableWebviewIntegration":
 				s.enableWebviewIntegration = Boolean(value);
 				this.plugin.applyWebviewIntegration(s.enableWebviewIntegration);
@@ -818,6 +851,9 @@ export class VimiumSettingTab extends PluginSettingTab {
 			}
 			case "activateOnLeaderKey":
 				s.activateOnLeaderKey = value as VimiumSettings["activateOnLeaderKey"];
+				break;
+			case "leaderIgnoreExplorer":
+				s.leaderIgnoreExplorer = Boolean(value);
 				break;
 			case "whichKey":
 				s.whichKey = Boolean(value);

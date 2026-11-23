@@ -6,7 +6,11 @@ import { defineCommands } from "./commands";
 import type { ActiveContext } from "./context";
 import { scrolloff } from "./scrolloff";
 import { Surround } from "./surround";
-import { TableNav, tableNavActivation } from "./table-nav";
+import {
+	TableNav,
+	tableLeadingBlankDecoration,
+	tableNavActivation,
+} from "./table-nav";
 import type { VimAdapter, VimMode } from "./vim";
 import { Vim } from "./vim";
 import { Clipboard } from "./yank";
@@ -64,6 +68,7 @@ export class VimExtras {
 		this.plugin.registerEditorExtension(
 			tableNavActivation((view) => this.tableNav.onViewUpdate(view))
 		);
+		this.plugin.registerEditorExtension(tableLeadingBlankDecoration());
 	}
 
 	/** Called after settings are saved so the clipboard toggle takes effect. */

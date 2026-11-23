@@ -28,6 +28,17 @@ export function tableAwareDisplayMotion(
 		}
 
 		const displayTarget = callMotion(display, cm, head, args, state, inputState);
+		// CodeMirror's display-line motion can jump clean over a rendered table
+		// widget when moving in from the adjacent line. Land inside the table
+		// with logical line motion instead, so activation can notice it.
+		if (
+			isPos(displayTarget) &&
+			linewise &&
+			tableBetween(cm, head.line, displayTarget.line)
+		) {
+			const logical = callMotion(linewise, cm, head, args, state, inputState);
+			if (isPos(logical)) return logical;
+		}
 		if (
 			isPos(displayTarget) &&
 			linewise &&
@@ -90,6 +101,24 @@ function isTableLineAt(cm: VimAdapter, line: number): boolean {
 		count += 1;
 	}
 	return count >= 2;
+}
+
+/** True when a table row lies strictly between two line numbers. */
+function tableBetween(
+	cm: VimAdapter,
+	fromLine: number,
+	toLine: number
+): boolean {
+	if (fromLine === toLine) return false;
+	const step = toLine > fromLine ? 1 : -1;
+	for (
+		let line = fromLine + step;
+		step > 0 ? line < toLine : line > toLine;
+		line += step
+	) {
+		if (isTableLineAt(cm, line)) return true;
+	}
+	return false;
 }
 
 function callMotion(

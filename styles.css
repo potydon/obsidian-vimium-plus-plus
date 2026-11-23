@@ -360,3 +360,16 @@
 	visibility: hidden;
 	position: absolute;
 }
+
+/* Markdown needs a blank line above a table. Keep it in the source but give it
+   no height in Live Preview so the table sits flush with the previous block. */
+body.vimium-collapse-table-blank .cm-line.vimium-table-leading-blank,
+body.vimium-collapse-table-blank .cm-line.vimium-table-leading-blank > * {
+	height: 0 !important;
+	min-height: 0 !important;
+	line-height: 0 !important;
+	font-size: 0 !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
+	overflow: hidden;
+}

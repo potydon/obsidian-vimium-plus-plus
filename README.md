@@ -55,10 +55,11 @@ Everything is editable under **Settings → Vimium++**:
 
 - **Leader key** — one key in Vim notation, e.g. `<Space>` or `<C-Space>`.
 - **Activate on leader key** — `Enabled` starts the leader from any pane where you are not typing, not just Reading mode, the editor's Vim normal mode, and the file explorer. `Markdown only` restricts that to Markdown views. `Disabled` (the default, like Spacekeys) keeps it to those usual panes. The leader never starts in Web viewer, Canvas, or the bookmarks, outline, and tag sidebars.
+- **Ignore leader in file explorer** — on by default, so `Space` keeps expanding and collapsing folders in the file explorer instead of starting a leader sequence. Turn it off to allow leader sequences there.
 - **Leader keys** — groups and bindings live in one list. A group names a prefix so the popup shows `+name`; a binding pairs a key sequence with a description and an action (any command-palette command, or a note by name or vault path). Sequences use Vim notation for special keys: `<Space>`, `<CR>`, `<Esc>`, `<BS>`, `<Tab>`, `<C-x>`. Drag the handle on a row to reorder groups or bindings.
 - **Which-key popup / delay** and **Pending sequence timeout** — turn the popup off or tune its timing.
 
-Leader bindings work in Reading mode, in the editor's Vim **normal** mode, and while the file explorer is focused. With **Activate on leader key** enabled they also start from any other pane where you are not typing; **Markdown only** limits that extra activation to Markdown views. They never fire in insert or visual mode, when a count/operator/motion is in progress, in Web viewer or Canvas, or in the bookmarks, outline, and tag sidebars. A leader sequence takes priority over the built-in keys and custom bindings when its first key matches, so if you previously bound `Space` to another leader plugin, remove that custom binding.
+Leader bindings work in Reading mode and in the editor's Vim **normal** mode. With **Ignore leader in file explorer** on (the default), the file explorer keeps its native `Space` behavior; turn it off to allow leader sequences there. With **Activate on leader key** enabled they also start from any other pane where you are not typing; **Markdown only** limits that extra activation to Markdown views. They never fire in insert or visual mode, when a count/operator/motion is in progress, in Web viewer or Canvas, or in the bookmarks, outline, and tag sidebars. A leader sequence takes priority over the built-in keys and custom bindings when its first key matches, so if you previously bound `Space` to another leader plugin, remove that custom binding.
 
 ## Vim enhancements in the editor
 
@@ -77,9 +78,14 @@ These features extend Obsidian's native Vim mode while editing a note. They foll
 | `gx` | Open the URL under the cursor in a new browser tab. |
 | `o` | Open a new line, keeping the Markdown list continuation that default Vim `o` breaks. |
 | `h` `j` `k` `l` in a table cell | Navigate cells in Obsidian's native Live Preview table editor. Counts work; `Tab` wraps to the next cell; moving past the first/last row exits the table. |
+| `gg` / `G` in a table cell | Jump to the first / last row of the current table, keeping the current column. |
+| `0` / `^` / `$` in a table cell | Jump to the first column, first non-empty cell, or last column of the current row. |
+| `H` / `M` / `L` in a table cell | Jump to the top / middle / bottom visible row of the current table, keeping the current column. |
 | `i` / `a` / `c` / `s` in a table cell | Open the highlighted cell in insert, append, change, or substitute mode. |
 | `Enter` in a table cell | Open the highlighted cell in Vim normal mode. |
 | `Escape` in a table cell | Leave the cell editor and return to cell navigation, or exit the table. |
+
+Obsidian keeps a blank source line above every table because Markdown tables cannot directly follow a paragraph. **Make table's empty line invisible** (on by default) hides that line visually without removing it from the note. With it enabled, `j`/`ArrowDown` from the text above steps straight into the table, and `k`/`ArrowUp` from the first row steps back to the text above.
 
 **Use gj/gk for j/k** installs native Vim normal-mode mappings `j` → `gj` and `k` → `gk`, the same way vimrc-support does. Counts and pending prefixes stay with Vim. Inside Markdown tables the display-line motion keeps the current cell column and skips the `|---|` separator row, and the option also applies per cursor. **Table navigation** is a separate modal layer for native Live Preview tables; it takes priority over the `j`/`k` mapping while a cell is active, and the status pill shows `TABLE` while it owns the keyboard. **Scrolloff** keeps a configurable number of lines visible above and below the cursor. **Register system clipboard** mirrors Vim's unnamed register to the OS clipboard (yanks/deletes write to it, `p` reads from it); named registers are unchanged. All are under **Settings → Vimium++ → Vim enhancements**, along with the Mod-D toggle.
 
@@ -136,7 +142,7 @@ Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim 
 
 ## Settings
 
-Hint characters, hint font size, scroll step, force-Reading-view toggle, Escape-returns-to-Reading toggle, native-Vim toggle, mode-indicator toggle, system-clipboard register, scrolloff, Mod-D select-word toggle, gj/gk-for-j/k toggle, table-navigation toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, the list of CSS selectors that become hint targets, Reading Mode Bindings (commands and terminal commands in one reorderable list), and the leader key, leader activation, leader bindings, leader groups, which-key, and pending-timeout settings.
+Hint characters, hint font size, scroll step, force-Reading-view toggle, Escape-returns-to-Reading toggle, native-Vim toggle, mode-indicator toggle, system-clipboard register, scrolloff, Mod-D select-word toggle, gj/gk-for-j/k toggle, table-navigation toggle, make-table's-empty-line-invisible toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, the list of CSS selectors that become hint targets, Reading Mode Bindings (commands and terminal commands in one reorderable list), and the leader key, leader activation, ignore-leader-in-file-explorer, leader bindings, leader groups, which-key, and pending-timeout settings.
 
 ## Build
 
