@@ -4,6 +4,6 @@
 	"version": "0.3.0",
 	"minAppVersion": "1.13.0",
 	"description": "Navigate with Vimium-style keys: f for click hints, j/k/d/u scrolling, J/K tab switching, Vim motions in the file explorer, and i to drop into the editor's native Vim mode.",
-	"author": "Potydon",
+	"author": "potydon",
 	"isDesktopOnly": true
 }
