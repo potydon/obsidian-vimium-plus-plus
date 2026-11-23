@@ -1,6 +1,6 @@
 {
 	"name": "vimium-plus-plus",
-	"version": "0.4.3",
+	"version": "0.4.4",
 	"description": "Vimium-style keyboard navigation for Obsidian.",
 	"main": "main.js",
 	"scripts": {
