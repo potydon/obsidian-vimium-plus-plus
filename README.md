@@ -153,7 +153,7 @@ npm run build    # type-check + production bundle
 1. Commit your work first. `npm version` refuses to run with uncommitted changes.
 2. Run `npm version patch` (or `minor` / `major`). This bumps `package.json`, updates `manifest.json` and `versions.json`, commits the changes, and creates a bare-version tag such as `0.3.1` (the repo sets npm's `tag-version-prefix` to empty).
 3. Run `npm run release`. This builds the plugin and pushes the commit and tag.
-4. The **Release Obsidian plugin** workflow builds on GitHub and creates a draft release titled with the version, containing `main.js`, `manifest.json`, and `styles.css`.
+4. The **Release Obsidian plugin** workflow builds on GitHub and publishes a release titled with the version, with generated notes and the `main.js`, `manifest.json`, and `styles.css` assets attached directly to the release.
 
 ```bash
 npm version patch

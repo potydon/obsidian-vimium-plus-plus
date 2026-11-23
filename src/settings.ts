@@ -7,6 +7,8 @@ import {
 	PluginSettingTab,
 	Setting,
 	TextComponent,
+	type SettingDefinition,
+	type SettingDefinitionItem,
 } from "obsidian";
 import type VimiumPlugin from "./main";
 import { normalizeLeaderKey } from "./leader/keys";
@@ -345,530 +347,723 @@ export class VimiumSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		// Rebuilding the tab (after adding, removing, or reordering rows) should
-		// keep the reader where they were instead of jumping back to the top.
-		const scroller =
-			containerEl.closest<HTMLElement>(".vertical-tab-content") ?? containerEl;
-		const scrollTop = scroller.scrollTop;
-		containerEl.empty();
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const s = this.plugin.settings;
 
-		new Setting(containerEl)
-			.setName("Hint characters")
-			.setDesc("Characters used to generate hint labels, in priority order.")
-			.addText((text) => {
-				text
-					.setValue(this.plugin.settings.hintChars)
-					.onChange(async (value) => {
-						const cleaned = [
-							...new Set(value.toLowerCase().replace(/[^a-z]/g, "")),
-						].join("");
-						this.plugin.settings.hintChars = cleaned || DEFAULT_SETTINGS.hintChars;
-						await this.plugin.saveSettings();
-					});
-				// Show what was actually saved (deduped/lowercased, or the
-				// default if the field was emptied).
-				text.inputEl.addEventListener("blur", () => {
-					text.setValue(this.plugin.settings.hintChars);
-				});
-			});
+		const general: SettingDefinitionItem[] = [
+			{
+				name: "Hint characters",
+				desc: "Characters used to generate hint labels, in priority order.",
+				control: {
+					type: "text",
+					key: "hintChars",
+					defaultValue: DEFAULT_SETTINGS.hintChars,
+				},
+			},
+			{
+				name: "Hint font size",
+				desc: "Font size of the hint markers, in pixels.",
+				control: {
+					type: "slider",
+					key: "hintFontSize",
+					min: 8,
+					max: 24,
+					step: 1,
+					defaultValue: DEFAULT_SETTINGS.hintFontSize,
+				},
+			},
+			{
+				name: "Scroll step",
+				desc: "Pixels scrolled per j / k press.",
+				control: {
+					type: "slider",
+					key: "scrollStep",
+					min: 20,
+					max: 300,
+					step: 10,
+					defaultValue: DEFAULT_SETTINGS.scrollStep,
+				},
+			},
+			{
+				name: "Force Reading view",
+				desc: "Open every note in Reading view so the Vimium layer is always active by default. Changes the editor's global default view mode; the previous value is restored when this is turned off or the plugin is disabled.",
+				control: {
+					type: "toggle",
+					key: "forceReadingView",
+					defaultValue: DEFAULT_SETTINGS.forceReadingView,
+				},
+			},
+			{
+				name: "Escape returns to Reading mode",
+				desc: "While editing a note, press Escape in normal Vim mode to leave the editor and go back to Reading view. Turn this off to keep Escape inside the editor.",
+				control: {
+					type: "toggle",
+					key: "escapeReturnsToReading",
+					defaultValue: DEFAULT_SETTINGS.escapeReturnsToReading,
+				},
+			},
+			{
+				name: "Enable native Vim",
+				desc: "Turn on Obsidian's built-in Vim key bindings so 'i' drops you into a Vim editor. Changes the editor's global Vim setting; the previous value is restored when this is turned off or the plugin is disabled.",
+				control: {
+					type: "toggle",
+					key: "enableNativeVim",
+					defaultValue: DEFAULT_SETTINGS.enableNativeVim,
+				},
+			},
+			{
+				name: "Show mode indicator",
+				desc: "Show a small pill indicating the current mode.",
+				control: {
+					type: "toggle",
+					key: "showModeIndicator",
+					defaultValue: DEFAULT_SETTINGS.showModeIndicator,
+				},
+			},
+			{
+				name: "Web viewer integration",
+				desc: "Inject the vim keys (scrolling, hints, tab switching) into Web viewer pages. Custom reading-mode bindings still require focus to be outside the page.",
+				control: {
+					type: "toggle",
+					key: "enableWebviewIntegration",
+					defaultValue: DEFAULT_SETTINGS.enableWebviewIntegration,
+				},
+			},
+			{
+				name: "Enable file explorer keys",
+				desc: "Neo-tree-style keys while the built-in file explorer has focus. Press e in Reading mode (or run the Toggle file explorer command) to focus the explorer.",
+				control: {
+					type: "toggle",
+					key: "explorerKeys",
+					defaultValue: DEFAULT_SETTINGS.explorerKeys,
+				},
+			},
+			{
+				name: "Open folder note on Enter",
+				desc: "While the file explorer has focus, Enter on a folder opens its Folder Notes note. Turn this off to open folder notes with Ctrl+Enter or Shift+Enter instead.",
+				control: {
+					type: "toggle",
+					key: "enterOpensFolderNote",
+					defaultValue: DEFAULT_SETTINGS.enterOpensFolderNote,
+				},
+			},
+			{
+				name: "Expand folder on Enter",
+				desc: "Enter on a folder expands it instead of toggling it. When Enter also opens a folder note, the folder is expanded first.",
+				control: {
+					type: "toggle",
+					key: "expandFolderOnEnter",
+					defaultValue: DEFAULT_SETTINGS.expandFolderOnEnter,
+				},
+			},
+			{
+				name: "Confirm before deleting in the explorer",
+				desc: "Ask before d deletes a file or folder while the file explorer has focus.",
+				control: {
+					type: "toggle",
+					key: "confirmDelete",
+					defaultValue: DEFAULT_SETTINGS.confirmDelete,
+				},
+			},
+			{
+				name: "Hint target selectors",
+				desc: "One CSS selector per line. Visible elements matching any selector become hint targets.",
+				control: {
+					type: "textarea",
+					key: "selectors",
+				},
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Hint font size")
-			.setDesc("Font size of the hint markers, in pixels.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(8, 24, 1)
-					.setValue(this.plugin.settings.hintFontSize)
-					.onChange(async (value) => {
-						this.plugin.settings.hintFontSize = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		const vimItems: SettingDefinition[] = [
+			{
+				name: "Register system clipboard",
+				desc: "Mirror Vim's unnamed register to the system clipboard. Yanks and deletes go to the OS clipboard, and p reads from it. Named registers are unchanged.",
+				control: {
+					type: "toggle",
+					key: "registerSystemClipboard",
+					defaultValue: DEFAULT_SETTINGS.registerSystemClipboard,
+				},
+			},
+			{
+				name: "Scrolloff",
+				desc: "Keep this many lines of context above and below the cursor while moving in the editor. Set to 0 to disable.",
+				control: {
+					type: "number",
+					key: "scrolloff",
+					min: 0,
+					defaultValue: DEFAULT_SETTINGS.scrolloff,
+				},
+			},
+			{
+				name: "Select word under cursor (Mod-D)",
+				desc: "Mod-D selects the word under the cursor (viw); press it again to add a cursor at the next match. Disable Obsidian's own Mod-D hotkey first.",
+				control: {
+					type: "toggle",
+					key: "modD",
+					defaultValue: DEFAULT_SETTINGS.modD,
+				},
+			},
+			{
+				name: "Use gj/gk for j/k",
+				desc: "Install native Vim normal-mode mappings j to gj and k to gk, the same way vimrc-support does. Counts and pending prefixes stay with Vim. Inside Markdown tables the display-line motion keeps the cell column and skips the separator row.",
+				control: {
+					type: "toggle",
+					key: "jkAsGjGk",
+					defaultValue: DEFAULT_SETTINGS.jkAsGjGk,
+				},
+			},
+			{
+				name: "Table navigation",
+				desc: "In a native Live Preview table cell, use h/j/k/l to move between cells, i/a/c/s or Enter to edit the cell, and Escape to return to cell navigation. Tab moves to the next cell.",
+				control: {
+					type: "toggle",
+					key: "tableNavigation",
+					defaultValue: DEFAULT_SETTINGS.tableNavigation,
+				},
+			},
+			{
+				name: "Included Vim enhancements",
+				desc: "Also enabled: vim surround (ys, ds, cs, visual S), per-cursor motions with multiple cursors (h/j/k/l/w/W/b/B/e/E/$, ^), Mod-Alt-Up/Down vertical cursors, gd/gx link actions, and list-aware o.",
+				searchable: false,
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Scroll step")
-			.setDesc("Pixels scrolled per j / k press.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(20, 300, 10)
-					.setValue(this.plugin.settings.scrollStep)
-					.onChange(async (value) => {
-						this.plugin.settings.scrollStep = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		const explorerItems: SettingDefinition[] = [
+			{
+				name: "File explorer key reference",
+				desc: "While the file explorer is focused: j/k move · h/l collapse or expand · Enter opens a file, opens the folder note, expands, or toggles a folder (see the two Enter settings above); Ctrl/Cmd+Enter or Shift+Enter always opens the folder note · gg/G first or last · z collapse all · a/A new file or folder · d delete · r rename · m move · c copy to path · x/y cut/copy · p paste · u undo · s/S/t split or tab · q close · Esc back to the editor.",
+				searchable: false,
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Force Reading view")
-			.setDesc("Open every note in Reading view so the Vimium layer is always active by default. Changes the editor's global default view mode; the previous value is restored when this is turned off or the plugin is disabled.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.forceReadingView)
-					.onChange(async (value) => {
-						this.plugin.settings.forceReadingView = value;
-						await this.plugin.saveSettings();
-						this.plugin.applyForceReadingView(value);
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Escape returns to Reading mode")
-			.setDesc("While editing a note, press Escape in normal Vim mode to leave the editor and go back to Reading view. Turn this off to keep Escape inside the editor.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.escapeReturnsToReading)
-					.onChange(async (value) => {
-						this.plugin.settings.escapeReturnsToReading = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Enable native Vim")
-			.setDesc("Turn on Obsidian's built-in Vim key bindings so 'i' drops you into a Vim editor. Changes the editor's global Vim setting; the previous value is restored when this is turned off or the plugin is disabled.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableNativeVim)
-					.onChange(async (value) => {
-						this.plugin.settings.enableNativeVim = value;
-						await this.plugin.saveSettings();
-						this.plugin.applyNativeVim(value);
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Show mode indicator")
-			.setDesc("Show a small pill indicating the current mode.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.showModeIndicator)
-					.onChange(async (value) => {
-						this.plugin.settings.showModeIndicator = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshModeIndicator();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Web viewer integration")
-			.setDesc("Inject the vim keys (scrolling, hints, tab switching) into Web viewer pages. Custom reading-mode bindings still require focus to be outside the page.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableWebviewIntegration)
-					.onChange(async (value) => {
-						this.plugin.settings.enableWebviewIntegration = value;
-						await this.plugin.saveSettings();
-						this.plugin.applyWebviewIntegration(value);
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Enable file explorer keys")
-			.setDesc("Neo-tree-style keys while the built-in file explorer has focus. Press e in Reading mode (or run the Toggle file explorer command) to focus the explorer.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.explorerKeys)
-					.onChange(async (value) => {
-						this.plugin.settings.explorerKeys = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshModeIndicator();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Open folder note on Enter")
-			.setDesc("While the file explorer has focus, Enter on a folder opens its Folder Notes note. Turn this off to open folder notes with Ctrl+Enter or Shift+Enter instead.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enterOpensFolderNote)
-					.onChange(async (value) => {
-						this.plugin.settings.enterOpensFolderNote = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Expand folder on Enter")
-			.setDesc("Enter on a folder expands it instead of toggling it. When Enter also opens a folder note, the folder is expanded first.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.expandFolderOnEnter)
-					.onChange(async (value) => {
-						this.plugin.settings.expandFolderOnEnter = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Confirm before deleting in the explorer")
-			.setDesc("Ask before d deletes a file or folder while the file explorer has focus.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.confirmDelete)
-					.onChange(async (value) => {
-						this.plugin.settings.confirmDelete = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Hint target selectors")
-			.setDesc("One CSS selector per line. Visible elements matching any selector become hint targets.")
-			.addTextArea((text) => {
-				text
-					.setValue(this.plugin.settings.selectors.join("\n"))
-					.onChange(async (value) => {
-						this.plugin.settings.selectors = value
-							.split("\n")
-							.map((s) => s.trim())
-							.filter((s) => s.length > 0);
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.rows = 12;
-				text.inputEl.addClass("vimium-selectors-input");
-			});
-
-		this.displayVimEnhancements(containerEl);
-		this.displayExplorerKeys(containerEl);
-		this.displayLeader(containerEl);
-		this.displayLeaderKeys(containerEl);
-		this.displayKeyBindings(containerEl);
-
-		scroller.scrollTop = scrollTop;
-	}
-
-	private displayVimEnhancements(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Vim enhancements").setHeading();
-		new Setting(containerEl)
-			.setName("Register system clipboard")
-			.setDesc(
-				"Mirror Vim's unnamed register to the system clipboard. Yanks and deletes go to the OS clipboard, and p reads from it. Named registers are unchanged."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.registerSystemClipboard)
-					.onChange(async (value) => {
-						this.plugin.settings.registerSystemClipboard = value;
-						await this.plugin.saveSettings();
-					})
-			);
-		new Setting(containerEl)
-			.setName("Scrolloff")
-			.setDesc(
-				"Keep this many lines of context above and below the cursor while moving in the editor. Set to 0 to disable."
-			)
-			.addText((text) => {
-				text
-					.setPlaceholder("0")
-					.setValue(String(this.plugin.settings.scrolloff))
-					.onChange(async (value) => {
-						const parsed = Number.parseInt(value, 10);
-						this.plugin.settings.scrolloff = Number.isFinite(parsed)
-							? Math.max(0, parsed)
-							: 0;
-						await this.plugin.saveSettings();
-					});
-			});
-		new Setting(containerEl)
-			.setName("Select word under cursor (Mod-D)")
-			.setDesc(
-				"Mod-D selects the word under the cursor (viw); press it again to add a cursor at the next match. Disable Obsidian's own Mod-D hotkey first."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.modD)
-					.onChange(async (value) => {
-						this.plugin.settings.modD = value;
-						await this.plugin.saveSettings();
-					})
-			);
-		new Setting(containerEl)
-			.setName("Use gj/gk for j/k")
-			.setDesc(
-				"Install native Vim normal-mode mappings j to gj and k to gk, the same way vimrc-support does. Counts and pending prefixes stay with Vim. Inside Markdown tables the display-line motion keeps the cell column and skips the separator row."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.jkAsGjGk)
-					.onChange(async (value) => {
-						this.plugin.settings.jkAsGjGk = value;
-						await this.plugin.saveSettings();
-					})
-			);
-		new Setting(containerEl)
-			.setName("Table navigation")
-			.setDesc(
-				"In a native Live Preview table cell, use h/j/k/l to move between cells, i/a/c/s or Enter to edit the cell, and Escape to return to cell navigation. Tab moves to the next cell."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.tableNavigation)
-					.onChange(async (value) => {
-						this.plugin.settings.tableNavigation = value;
-						await this.plugin.saveSettings();
-					})
-			);
-		containerEl.createEl("p", {
-			text: "Also enabled: vim surround (ys, ds, cs, visual S), per-cursor motions with multiple cursors (h/j/k/l/w/W/b/B/e/E/$, ^), Mod-Alt-Up/Down vertical cursors, gd/gx link actions, and list-aware o.",
-			cls: "setting-item-description",
-		});
-	}
-
-	private displayExplorerKeys(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("File explorer keys").setHeading();
-		containerEl.createEl("p", {
-			text: "While the file explorer is focused: j/k move · h/l collapse or expand · Enter opens a file, opens the folder note, expands, or toggles a folder (see the two Enter settings above); Ctrl/Cmd+Enter or Shift+Enter always opens the folder note · gg/G first or last · z collapse all · a/A new file or folder · d delete · r rename · m move · c copy to path · x/y cut/copy · p paste · u undo · s/S/t split or tab · q close · Esc back to the editor.",
-			cls: "setting-item-description",
-		});
-	}
-
-	private displayLeader(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Leader").setHeading();
-		containerEl.createEl("p", {
-			text: "Press the leader key, then a sequence. A which-key popup lists what can follow. Leader bindings work in Reading mode, in the editor's Vim normal mode, and while the file explorer is focused; with Activate on leader key they also work in any pane where you are not typing. They never interfere with typing in insert or visual mode, or a Web viewer page.",
-			cls: "setting-item-description",
-		});
-
-		new Setting(containerEl)
-			.setName("Leader key")
-			.setDesc("One key, in Vim notation: <Space>, <C-Space>, or a plain character. Pressing it starts a sequence.")
-			.addText((text) => {
-				text.setPlaceholder("<Space>").setValue(this.plugin.settings.leaderKey);
-				text.inputEl.addClass("vimium-keybinding-key");
-
-				const commit = (): void => {
-					const normalized = normalizeLeaderKey(text.inputEl.value);
-					if (normalized == null) {
-						new Notice("The leader key must be exactly one key.");
-						text.setValue(this.plugin.settings.leaderKey);
-						return;
-					}
-					this.plugin.settings.leaderKey = normalized;
-					text.setValue(normalized);
-					void this.plugin.saveSettings();
-				};
-				text.inputEl.addEventListener("change", commit);
-				text.inputEl.addEventListener("keydown", (e) => {
-					if (e.key === "Enter") text.inputEl.blur();
-				});
-			});
-
-		new Setting(containerEl)
-			.setName("Activate on leader key")
-			.setDesc(
-				"Start the leader sequence from any pane where you are not typing, not just Reading mode and the file explorer. Web viewer, Canvas, and the bookmarks, outline, and tag sidebars are left alone. Markdown only restricts this to Markdown views. Disabled keeps the leader to the usual panes."
-			)
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOptions({
+		const leaderItems: SettingDefinition[] = [
+			{
+				name: "About leader keys",
+				desc: "Press the leader key, then a sequence. A which-key popup lists what can follow. Leader bindings work in Reading mode, in the editor's Vim normal mode, and while the file explorer is focused; with Activate on leader key they also work in any pane where you are not typing. They never interfere with typing in insert or visual mode, or a Web viewer page.",
+				searchable: false,
+			},
+			{
+				name: "Leader key",
+				desc: "One key, in Vim notation: <Space>, <C-Space>, or a plain character. Pressing it starts a sequence.",
+				control: {
+					type: "text",
+					key: "leaderKey",
+					defaultValue: DEFAULT_SETTINGS.leaderKey,
+					validate: (value) =>
+						normalizeLeaderKey(value) === null
+							? "The leader key must be exactly one key."
+							: undefined,
+				},
+			},
+			{
+				name: "Activate on leader key",
+				desc: "Start the leader sequence from any pane where you are not typing, not just Reading mode and the file explorer. Web viewer, Canvas, and the bookmarks, outline, and tag sidebars are left alone. Markdown only restricts this to Markdown views. Disabled keeps the leader to the usual panes.",
+				control: {
+					type: "dropdown",
+					key: "activateOnLeaderKey",
+					options: {
 						disabled: "Disabled",
 						enabled: "Enabled",
 						markdown_only: "Markdown only",
-					})
-					.setValue(this.plugin.settings.activateOnLeaderKey)
-					.onChange(async (value) => {
-						this.plugin.settings.activateOnLeaderKey =
-							value as VimiumSettings["activateOnLeaderKey"];
-						await this.plugin.saveSettings();
-					})
-			);
+					},
+					defaultValue: DEFAULT_SETTINGS.activateOnLeaderKey,
+				},
+			},
+			{
+				name: "Show which-key popup",
+				desc: "List the keys that can follow the current prefix while a leader sequence is pending.",
+				control: {
+					type: "toggle",
+					key: "whichKey",
+					defaultValue: DEFAULT_SETTINGS.whichKey,
+				},
+			},
+			{
+				name: "Which-key delay",
+				desc: "Milliseconds to wait before showing the popup. 0 shows it immediately.",
+				control: {
+					type: "slider",
+					key: "whichKeyDelay",
+					min: 0,
+					max: 1000,
+					step: 50,
+					defaultValue: DEFAULT_SETTINGS.whichKeyDelay,
+				},
+			},
+			{
+				name: "Pending sequence timeout",
+				desc: "Milliseconds before an unfinished leader sequence is cancelled. 0 keeps it open until Esc.",
+				control: {
+					type: "slider",
+					key: "leaderTimeout",
+					min: 0,
+					max: 5000,
+					step: 250,
+					defaultValue: DEFAULT_SETTINGS.leaderTimeout,
+				},
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Show which-key popup")
-			.setDesc("List the keys that can follow the current prefix while a leader sequence is pending.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.whichKey)
-					.onChange(async (value) => {
-						this.plugin.settings.whichKey = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		const leaderKeyItems: SettingDefinition[] = [
+			{
+				name: "About leader key entries",
+				desc: "Keys typed after the leader. Use Vim notation for special keys: <Space>, <CR>, <Esc>, <BS>, <Tab>, <C-x>. Groups name a prefix so the which-key popup shows it as +name. Bindings run a command from the command palette or open a note by name or vault path. Drag the handle to reorder groups or bindings.",
+				searchable: false,
+			},
+			...s.leaderGroups.map(
+				(group, index): SettingDefinition => ({
+					name: `Leader group ${index + 1}`,
+					desc: `${group.prefix || "no prefix"} — ${group.name || "unnamed"}`,
+					render: (setting, groupEl) =>
+						this.renderLeaderGroup(setting, index, groupEl.listEl),
+				})
+			),
+			{
+				name: "Add group",
+				action: () => {
+					void this.addLeaderGroup();
+				},
+			},
+			...s.leaderBindings.map(
+				(binding, index): SettingDefinition => ({
+					name: `Leader binding ${index + 1}`,
+					desc: `${binding.keys || "unset"} — ${binding.description || binding.commandName || binding.filePath || "no action"}`,
+					render: (setting, groupEl) =>
+						this.renderLeaderBinding(setting, index, groupEl.listEl),
+				})
+			),
+			{
+				name: "Add binding",
+				action: () => {
+					void this.addLeaderBinding();
+				},
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Which-key delay")
-			.setDesc("Milliseconds to wait before showing the popup. 0 shows it immediately.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 1000, 50)
-					.setValue(this.plugin.settings.whichKeyDelay)
-					.onChange(async (value) => {
-						this.plugin.settings.whichKeyDelay = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		const bindingItems: SettingDefinition[] = [
+			{
+				name: "About Reading Mode Bindings",
+				desc: "Bind a key — or a sequence like gT — to a command-palette command or a shell command. Active in reading mode. Bindings override the built-in keys (you'll be asked to confirm). For shell commands, {{path}} (active note), {{folder}} (the note's folder), and {{vault}} (vault root) are replaced with quoted absolute paths, and the command runs from the note's folder. Example: kitty --directory {{folder}}",
+				searchable: false,
+			},
+			...s.keyBindings.map(
+				(binding, index): SettingDefinition => ({
+					name: `Reading Mode Binding ${index + 1}`,
+					desc: `${binding.key || "unset"} — ${binding.kind === "terminal" ? binding.terminalCommand || "no command" : binding.commandName || "no command"}`,
+					render: (setting, groupEl) =>
+						this.renderReadingBinding(setting, index, groupEl.listEl),
+				})
+			),
+			{
+				name: "Add new binding",
+				action: () => {
+					void this.addReadingBinding();
+				},
+			},
+		];
 
-		new Setting(containerEl)
-			.setName("Pending sequence timeout")
-			.setDesc("Milliseconds before an unfinished leader sequence is cancelled. 0 keeps it open until Esc.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 5000, 250)
-					.setValue(this.plugin.settings.leaderTimeout)
-					.onChange(async (value) => {
-						this.plugin.settings.leaderTimeout = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		return [
+			...general,
+			{ type: "group", heading: "Vim enhancements", items: vimItems },
+			{ type: "group", heading: "File explorer keys", items: explorerItems },
+			{ type: "group", heading: "Leader", items: leaderItems },
+			{ type: "group", heading: "Leader keys", items: leaderKeyItems },
+			{
+				type: "group",
+				heading: "Reading Mode Bindings",
+				items: bindingItems,
+			},
+		];
 	}
 
-	private displayLeaderKeys(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Leader keys").setHeading();
-		containerEl.createEl("p", {
-			text: "Keys typed after the leader. Use Vim notation for special keys: <Space>, <CR>, <Esc>, <BS>, <Tab>, <C-x>. Groups name a prefix so the which-key popup shows it as +name. Bindings run a command from the command palette or open a note by name or vault path. Drag the handle to reorder groups or bindings.",
-			cls: "setting-item-description",
-		});
+	/** Re-render from definitions while keeping the settings scroll position. */
+	update(): void {
+		const scroller =
+			this.containerEl?.closest<HTMLElement>(".vertical-tab-content") ??
+			this.containerEl;
+		const scrollTop = scroller?.scrollTop ?? 0;
+		super.update();
+		if (scroller) scroller.scrollTop = scrollTop;
+	}
 
-		if (this.plugin.settings.leaderGroups.length > 0) {
-			containerEl.createEl("p", {
-				text: "Groups",
-				cls: "setting-item-description vimium-leader-subheading",
-			});
+	getControlValue(key: string): unknown {
+		const s = this.plugin.settings;
+		switch (key) {
+			case "hintChars":
+				return s.hintChars;
+			case "hintFontSize":
+				return s.hintFontSize;
+			case "scrollStep":
+				return s.scrollStep;
+			case "forceReadingView":
+				return s.forceReadingView;
+			case "escapeReturnsToReading":
+				return s.escapeReturnsToReading;
+			case "enableNativeVim":
+				return s.enableNativeVim;
+			case "showModeIndicator":
+				return s.showModeIndicator;
+			case "registerSystemClipboard":
+				return s.registerSystemClipboard;
+			case "scrolloff":
+				return s.scrolloff;
+			case "modD":
+				return s.modD;
+			case "jkAsGjGk":
+				return s.jkAsGjGk;
+			case "tableNavigation":
+				return s.tableNavigation;
+			case "enableWebviewIntegration":
+				return s.enableWebviewIntegration;
+			case "explorerKeys":
+				return s.explorerKeys;
+			case "enterOpensFolderNote":
+				return s.enterOpensFolderNote;
+			case "expandFolderOnEnter":
+				return s.expandFolderOnEnter;
+			case "confirmDelete":
+				return s.confirmDelete;
+			case "selectors":
+				return s.selectors.join("\n");
+			case "leaderKey":
+				return s.leaderKey;
+			case "activateOnLeaderKey":
+				return s.activateOnLeaderKey;
+			case "whichKey":
+				return s.whichKey;
+			case "whichKeyDelay":
+				return s.whichKeyDelay;
+			case "leaderTimeout":
+				return s.leaderTimeout;
+			default:
+				return super.getControlValue(key);
 		}
+	}
 
-		this.plugin.settings.leaderGroups.forEach((group, index) => {
-			const row = new Setting(containerEl);
-			row.settingEl.addClass("vimium-leader-group-row");
-			this.attachRowDrag(row, "group", index, containerEl);
-
-			row.addText((text) => {
-				text.setPlaceholder("Prefix").setValue(group.prefix);
-				text.inputEl.addClass("vimium-keybinding-key");
-				text.onChange(async (value) => {
-					group.prefix = value.trim();
-					await this.plugin.saveSettings();
-				});
-			});
-
-			row.addText((text) => {
-				text.setPlaceholder("Group name").setValue(group.name);
-				text.inputEl.addClass("vimium-leader-group-name");
-				text.onChange(async (value) => {
-					group.name = value.trim();
-					await this.plugin.saveSettings();
-				});
-			});
-
-			row.addExtraButton((button) => {
-				button
-					.setIcon("trash")
-					.setTooltip("Remove group")
-					.onClick(async () => {
-						this.plugin.settings.leaderGroups.splice(index, 1);
-						await this.plugin.saveSettings();
-						this.display();
-					});
-			});
-		});
-
-		const addGroup = new Setting(containerEl);
-		addGroup.settingEl.addClass("vimium-leader-actions");
-		addGroup.addButton((button) => {
-			button.setButtonText("Add group").onClick(async () => {
-				this.plugin.settings.leaderGroups.push({ prefix: "", name: "" });
-				await this.plugin.saveSettings();
-				this.display();
-			});
-		});
-
-		if (this.plugin.settings.leaderBindings.length > 0) {
-			containerEl.createEl("p", {
-				text: "Bindings",
-				cls: "setting-item-description vimium-leader-subheading",
-			});
-		}
-
-		this.plugin.settings.leaderBindings.forEach((binding, index) => {
-			const row = new Setting(containerEl);
-			row.settingEl.addClass("vimium-leader-row");
-			this.attachRowDrag(row, "leaderBinding", index, containerEl);
-
-			row.addText((text) => {
-				text.setPlaceholder("Key(s)").setValue(binding.keys);
-				text.inputEl.addClass("vimium-keybinding-key");
-				text.onChange(async (value) => {
-					binding.keys = value.trim();
-					await this.plugin.saveSettings();
-				});
-			});
-
-			row.addText((text) => {
-				text.setPlaceholder("Description").setValue(binding.description);
-				text.inputEl.addClass("vimium-leader-desc");
-				text.onChange(async (value) => {
-					binding.description = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-			row.addDropdown((dropdown) => {
-				dropdown.addOption("command", "Command");
-				dropdown.addOption("file", "File");
-				dropdown.setValue(binding.kind);
-				dropdown.onChange(async (value) => {
-					binding.kind = value === "file" ? "file" : "command";
-					await this.plugin.saveSettings();
-					this.display();
-				});
-			});
-
-			if (binding.kind === "file") {
-				row.addText((text) => {
-					text.setPlaceholder("Note name or path").setValue(binding.filePath);
-					text.inputEl.addClass("vimium-leader-file");
-					text.onChange(async (value) => {
-						binding.filePath = value.trim();
-						await this.plugin.saveSettings();
-					});
-				});
-			} else {
-				row.addButton((button) => {
-					button
-						.setButtonText(binding.commandName || "Choose command…")
-						.onClick(() => {
-							new CommandSuggestModal(this.app, (command) => {
-								binding.commandId = command.id;
-								binding.commandName = command.name;
-								if (!binding.description.trim()) {
-									binding.description = command.name;
-								}
-								button.setButtonText(command.name);
-								void this.plugin.saveSettings();
-							}).open();
-						});
-				});
+	setControlValue(key: string, value: unknown): void | Promise<void> {
+		const s = this.plugin.settings;
+		switch (key) {
+			case "hintChars": {
+				const cleaned = [
+					...new Set(String(value).toLowerCase().replace(/[^a-z]/g, "")),
+				].join("");
+				s.hintChars = cleaned || DEFAULT_SETTINGS.hintChars;
+				break;
 			}
+			case "hintFontSize":
+				s.hintFontSize = Number(value);
+				break;
+			case "scrollStep":
+				s.scrollStep = Number(value);
+				break;
+			case "forceReadingView":
+				s.forceReadingView = Boolean(value);
+				this.plugin.applyForceReadingView(s.forceReadingView);
+				break;
+			case "escapeReturnsToReading":
+				s.escapeReturnsToReading = Boolean(value);
+				break;
+			case "enableNativeVim":
+				s.enableNativeVim = Boolean(value);
+				this.plugin.applyNativeVim(s.enableNativeVim);
+				break;
+			case "showModeIndicator":
+				s.showModeIndicator = Boolean(value);
+				this.plugin.refreshModeIndicator();
+				break;
+			case "registerSystemClipboard":
+				s.registerSystemClipboard = Boolean(value);
+				break;
+			case "scrolloff":
+				s.scrolloff = Math.max(0, Number(value) || 0);
+				break;
+			case "modD":
+				s.modD = Boolean(value);
+				break;
+			case "jkAsGjGk":
+				s.jkAsGjGk = Boolean(value);
+				break;
+			case "tableNavigation":
+				s.tableNavigation = Boolean(value);
+				break;
+			case "enableWebviewIntegration":
+				s.enableWebviewIntegration = Boolean(value);
+				this.plugin.applyWebviewIntegration(s.enableWebviewIntegration);
+				break;
+			case "explorerKeys":
+				s.explorerKeys = Boolean(value);
+				this.plugin.refreshModeIndicator();
+				break;
+			case "enterOpensFolderNote":
+				s.enterOpensFolderNote = Boolean(value);
+				break;
+			case "expandFolderOnEnter":
+				s.expandFolderOnEnter = Boolean(value);
+				break;
+			case "confirmDelete":
+				s.confirmDelete = Boolean(value);
+				break;
+			case "selectors":
+				s.selectors = String(value)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line.length > 0);
+				break;
+			case "leaderKey": {
+				const normalized = normalizeLeaderKey(String(value));
+				if (normalized === null) return;
+				s.leaderKey = normalized;
+				break;
+			}
+			case "activateOnLeaderKey":
+				s.activateOnLeaderKey = value as VimiumSettings["activateOnLeaderKey"];
+				break;
+			case "whichKey":
+				s.whichKey = Boolean(value);
+				break;
+			case "whichKeyDelay":
+				s.whichKeyDelay = Number(value);
+				break;
+			case "leaderTimeout":
+				s.leaderTimeout = Number(value);
+				break;
+			default:
+				return super.setControlValue(key, value);
+		}
+		return this.plugin.saveSettings();
+	}
 
-			row.addExtraButton((button) => {
+	private async addLeaderGroup(): Promise<void> {
+		this.plugin.settings.leaderGroups.push({ prefix: "", name: "" });
+		await this.plugin.saveSettings();
+		this.update();
+	}
+
+	private async addLeaderBinding(): Promise<void> {
+		this.plugin.settings.leaderBindings.push({
+			keys: "",
+			description: "",
+			kind: "command",
+			commandId: "",
+			commandName: "",
+			filePath: "",
+		});
+		await this.plugin.saveSettings();
+		this.update();
+	}
+
+	private async addReadingBinding(): Promise<void> {
+		this.plugin.settings.keyBindings.push({
+			key: "",
+			kind: "command",
+			commandId: "",
+			commandName: "",
+			terminalCommand: "",
+		});
+		await this.plugin.saveSettings();
+		this.update();
+	}
+
+	private renderLeaderGroup(
+		setting: Setting,
+		index: number,
+		containerEl: HTMLElement
+	): void {
+		const group = this.plugin.settings.leaderGroups[index];
+		setting.settingEl.addClass("vimium-leader-group-row");
+		this.attachRowDrag(setting, "group", index, containerEl);
+
+		setting.addText((text) => {
+			text.setPlaceholder("Prefix").setValue(group.prefix);
+			text.inputEl.addClass("vimium-keybinding-key");
+			void text.onChange(async (value) => {
+				group.prefix = value.trim();
+				await this.plugin.saveSettings();
+			});
+		});
+
+		setting.addText((text) => {
+			text.setPlaceholder("Group name").setValue(group.name);
+			text.inputEl.addClass("vimium-leader-group-name");
+			void text.onChange(async (value) => {
+				group.name = value.trim();
+				await this.plugin.saveSettings();
+			});
+		});
+
+		setting.addExtraButton((button) => {
+			button
+				.setIcon("trash")
+				.setTooltip("Remove group")
+				.onClick(() => {
+					void this.removeLeaderGroup(index);
+				});
+		});
+	}
+
+	private async removeLeaderGroup(index: number): Promise<void> {
+		this.plugin.settings.leaderGroups.splice(index, 1);
+		await this.plugin.saveSettings();
+		this.update();
+	}
+
+	private renderLeaderBinding(
+		setting: Setting,
+		index: number,
+		containerEl: HTMLElement
+	): void {
+		const binding = this.plugin.settings.leaderBindings[index];
+		setting.settingEl.addClass("vimium-leader-row");
+		this.attachRowDrag(setting, "leaderBinding", index, containerEl);
+
+		setting.addText((text) => {
+			text.setPlaceholder("Key(s)").setValue(binding.keys);
+			text.inputEl.addClass("vimium-keybinding-key");
+			void text.onChange(async (value) => {
+				binding.keys = value.trim();
+				await this.plugin.saveSettings();
+			});
+		});
+
+		setting.addText((text) => {
+			text.setPlaceholder("Description").setValue(binding.description);
+			text.inputEl.addClass("vimium-leader-desc");
+			void text.onChange(async (value) => {
+				binding.description = value;
+				await this.plugin.saveSettings();
+			});
+		});
+
+		setting.addDropdown((dropdown) => {
+			dropdown.addOption("command", "Command");
+			dropdown.addOption("file", "File");
+			dropdown.setValue(binding.kind);
+			void dropdown.onChange(async (value) => {
+				binding.kind = value === "file" ? "file" : "command";
+				await this.plugin.saveSettings();
+				this.update();
+			});
+		});
+
+		if (binding.kind === "file") {
+			setting.addText((text) => {
+				text.setPlaceholder("Note name or path").setValue(binding.filePath);
+				text.inputEl.addClass("vimium-leader-file");
+				void text.onChange(async (value) => {
+					binding.filePath = value.trim();
+					await this.plugin.saveSettings();
+				});
+			});
+		} else {
+			setting.addButton((button) => {
 				button
-					.setIcon("trash")
-					.setTooltip("Remove binding")
-					.onClick(async () => {
-						this.plugin.settings.leaderBindings.splice(index, 1);
-						await this.plugin.saveSettings();
-						this.display();
+					.setButtonText(binding.commandName || "Choose command…")
+					.onClick(() => {
+						new CommandSuggestModal(this.app, (command) => {
+							binding.commandId = command.id;
+							binding.commandName = command.name;
+							if (!binding.description.trim()) {
+								binding.description = command.name;
+							}
+							button.setButtonText(command.name);
+							void this.plugin.saveSettings();
+						}).open();
 					});
 			});
+		}
+
+		setting.addExtraButton((button) => {
+			button
+				.setIcon("trash")
+				.setTooltip("Remove binding")
+				.onClick(() => {
+					void this.removeLeaderBinding(index);
+				});
+		});
+	}
+
+	private async removeLeaderBinding(index: number): Promise<void> {
+		this.plugin.settings.leaderBindings.splice(index, 1);
+		await this.plugin.saveSettings();
+		this.update();
+	}
+
+	private renderReadingBinding(
+		setting: Setting,
+		index: number,
+		containerEl: HTMLElement
+	): void {
+		const binding = this.plugin.settings.keyBindings[index];
+		setting.settingEl.addClass("vimium-keybinding-row");
+		this.attachRowDrag(setting, "binding", index, containerEl);
+
+		setting.addText((text) => {
+			text.setPlaceholder("Key(s)").setValue(binding.key);
+			text.inputEl.addClass("vimium-keybinding-key");
+			this.attachKeySequenceField(
+				text,
+				() => binding.key,
+				(key) => {
+					binding.key = key;
+				},
+				(key) =>
+					this.plugin.settings.keyBindings.some(
+						(other) => other !== binding && other.key === key
+					)
+			);
 		});
 
-		const addBinding = new Setting(containerEl);
-		addBinding.settingEl.addClass("vimium-leader-actions");
-		addBinding.addButton((button) => {
-			button.setButtonText("Add binding").onClick(async () => {
-				this.plugin.settings.leaderBindings.push({
-					keys: "",
-					description: "",
-					kind: "command",
-					commandId: "",
-					commandName: "",
-					filePath: "",
-				});
+		setting.addDropdown((dropdown) => {
+			dropdown.addOption("command", "Command");
+			dropdown.addOption("terminal", "Terminal");
+			dropdown.setValue(binding.kind);
+			dropdown.selectEl.addClass("vimium-binding-kind");
+			void dropdown.onChange(async (value) => {
+				binding.kind = value === "terminal" ? "terminal" : "command";
 				await this.plugin.saveSettings();
-				this.display();
+				this.update();
 			});
 		});
+
+		if (binding.kind === "terminal") {
+			setting.addText((text) => {
+				text.setPlaceholder("Shell command…").setValue(binding.terminalCommand);
+				text.inputEl.addClass("vimium-terminal-command");
+				void text.onChange(async (value) => {
+					binding.terminalCommand = value.trim();
+					await this.plugin.saveSettings();
+				});
+			});
+		} else {
+			setting.addButton((button) => {
+				button
+					.setButtonText(binding.commandName || "Choose command…")
+					.onClick(() => {
+						new CommandSuggestModal(this.app, (command) => {
+							binding.commandId = command.id;
+							binding.commandName = command.name;
+							button.setButtonText(command.name);
+							void this.plugin.saveSettings();
+						}).open();
+					});
+			});
+		}
+
+		setting.addExtraButton((button) => {
+			button
+				.setIcon("trash")
+				.setTooltip("Remove binding")
+				.onClick(() => {
+					void this.removeReadingBinding(index);
+				});
+		});
+	}
+
+	private async removeReadingBinding(index: number): Promise<void> {
+		this.plugin.settings.keyBindings.splice(index, 1);
+		await this.plugin.saveSettings();
+		this.update();
 	}
 
 	/**
@@ -946,7 +1141,7 @@ export class VimiumSettingTab extends PluginSettingTab {
 		}
 		if (!moved) return;
 		await this.plugin.saveSettings();
-		this.display();
+		this.update();
 	}
 
 	/** Move one item and report whether the list changed. */
@@ -955,99 +1150,6 @@ export class VimiumSettingTab extends PluginSettingTab {
 		const [item] = list.splice(from, 1);
 		list.splice(Math.max(0, Math.min(to, list.length)), 0, item);
 		return true;
-	}
-
-	private displayKeyBindings(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Reading Mode Bindings").setHeading();
-		containerEl.createEl("p", {
-			text: "Bind a key — or a sequence like gT — to a command-palette command or a shell command. Active in reading mode. Bindings override the built-in keys (you'll be asked to confirm). For shell commands, {{path}} (active note), {{folder}} (the note's folder), and {{vault}} (vault root) are replaced with quoted absolute paths, and the command runs from the note's folder. Example: kitty --directory {{folder}}",
-			cls: "setting-item-description",
-		});
-
-		this.plugin.settings.keyBindings.forEach((binding, index) => {
-			const row = new Setting(containerEl);
-			row.settingEl.addClass("vimium-keybinding-row");
-			this.attachRowDrag(row, "binding", index, containerEl);
-
-			row.addText((text) => {
-				text.setPlaceholder("Key(s)").setValue(binding.key);
-				text.inputEl.addClass("vimium-keybinding-key");
-				this.attachKeySequenceField(
-					text,
-					() => binding.key,
-					(key) => {
-						binding.key = key;
-					},
-					(key) =>
-						this.plugin.settings.keyBindings.some(
-							(other) => other !== binding && other.key === key
-						)
-				);
-			});
-
-			row.addDropdown((dropdown) => {
-				dropdown.addOption("command", "Command");
-				dropdown.addOption("terminal", "Terminal");
-				dropdown.setValue(binding.kind);
-				dropdown.selectEl.addClass("vimium-binding-kind");
-				dropdown.onChange(async (value) => {
-					binding.kind = value === "terminal" ? "terminal" : "command";
-					await this.plugin.saveSettings();
-					this.display();
-				});
-			});
-
-			if (binding.kind === "terminal") {
-				row.addText((text) => {
-					text.setPlaceholder("Shell command…").setValue(binding.terminalCommand);
-					text.inputEl.addClass("vimium-terminal-command");
-					text.onChange(async (value) => {
-						binding.terminalCommand = value.trim();
-						await this.plugin.saveSettings();
-					});
-				});
-			} else {
-				row.addButton((button) => {
-					button
-						.setButtonText(binding.commandName || "Choose command…")
-						.onClick(() => {
-							new CommandSuggestModal(this.app, (command) => {
-								binding.commandId = command.id;
-								binding.commandName = command.name;
-								button.setButtonText(command.name);
-								void this.plugin.saveSettings();
-							}).open();
-						});
-				});
-			}
-
-			row.addExtraButton((button) => {
-				button
-					.setIcon("trash")
-					.setTooltip("Remove binding")
-					.onClick(async () => {
-						this.plugin.settings.keyBindings.splice(index, 1);
-						await this.plugin.saveSettings();
-						this.display();
-					});
-			});
-		});
-
-		const addBinding = new Setting(containerEl);
-		addBinding.settingEl.addClass("vimium-binding-actions");
-		addBinding.addButton((button) => {
-			button.setButtonText("Add new binding").onClick(async () => {
-				this.plugin.settings.keyBindings.push({
-					key: "",
-					kind: "command",
-					commandId: "",
-					commandName: "",
-					terminalCommand: "",
-				});
-				await this.plugin.saveSettings();
-				this.display();
-			});
-		});
 	}
 
 	/**

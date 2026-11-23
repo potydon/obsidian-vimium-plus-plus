@@ -717,8 +717,16 @@ export class TableNav {
 
 		const row = cell.cell?.row;
 		const col = cell.cell?.col;
-		if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
-		if ((row as number) < 0 || (col as number) < 0) return null;
+		if (
+			typeof row !== "number" ||
+			typeof col !== "number" ||
+			!Number.isInteger(row) ||
+			!Number.isInteger(col) ||
+			row < 0 ||
+			col < 0
+		) {
+			return null;
+		}
 
 		return {
 			editMode,
@@ -726,8 +734,8 @@ export class TableNav {
 			range,
 			widgetEl,
 			table,
-			row: row as number,
-			col: col as number,
+			row,
+			col,
 		};
 	}
 

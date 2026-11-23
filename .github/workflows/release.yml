@@ -61,7 +61,15 @@ jobs:
           tag="${GITHUB_REF#refs/tags/}"
           version="${tag#v}"
 
-          gh release create "$tag" \
-            --title="$version" \
-            --draft \
-            main.js manifest.json styles.css
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title="$version" --draft=false
+          else
+            gh release create "$tag" \
+              --verify-tag \
+              --title="$version" \
+              --generate-notes \
+              main.js manifest.json styles.css
+          fi
+
+          # Re-upload on reruns so the release always has current artifacts.
+          gh release upload "$tag" main.js manifest.json styles.css --clobber

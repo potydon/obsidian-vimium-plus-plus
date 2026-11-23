@@ -1,7 +1,6 @@
 // Neo-tree-style keys for Obsidian's built-in file explorer.
 import {
 	App,
-	MarkdownView,
 	Notice,
 	TAbstractFile,
 	TFile,

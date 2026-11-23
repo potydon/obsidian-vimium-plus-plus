@@ -14,6 +14,10 @@
  * window-capture key handlers before injection can still swallow keys.
  */
 
+/* eslint-disable obsidianmd/prefer-create-el, obsidianmd/no-static-styles-assignment --
+   This function is serialized into a Webview guest, where Obsidian's createEl and
+   setCssStyles helpers are unavailable and direct DOM styling is required. */
+
 /** Actions the guest can run. `tab*` are forwarded to the host as messages. */
 export type GuestAction =
 	| "scrollDown"
@@ -79,6 +83,7 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 	// page itself, so it must stay benign.
 	function send(msg: Record<string, unknown>): void {
 		try {
+			// eslint-disable-next-line no-console -- console.log is the host/guest IPC channel.
 			console.log("__vimium_plus__:" + JSON.stringify(msg));
 		} catch {
 			// Ignore: messaging is best-effort.
@@ -231,10 +236,12 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 	function collectTargets(): HTMLElement[] {
 		const targets: HTMLElement[] = [];
 		document.querySelectorAll(HINT_SELECTORS).forEach((node) => {
-			if (!(node instanceof HTMLElement)) return;
-			if ((node as unknown as { disabled?: boolean }).disabled === true) return;
-			if (!isVisible(node)) return;
-			targets.push(node);
+			// nodeType is cross-window safe, unlike `instanceof HTMLElement`.
+			if (node.nodeType !== 1) return;
+			const el = node as HTMLElement;
+			if ((el as unknown as { disabled?: boolean }).disabled === true) return;
+			if (!isVisible(el)) return;
+			targets.push(el);
 		});
 		return targets;
 	}
@@ -275,8 +282,10 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 		if (typed.length > 0 && hint.label.indexOf(typed) === 0) {
 			const typedSpan = document.createElement("span");
 			typedSpan.textContent = typed;
-			typedSpan.style.color = "#d4a017";
-			typedSpan.style.opacity = "0.55";
+			Object.assign(typedSpan.style, {
+				color: "#d4a017",
+				opacity: "0.55",
+			});
 			hint.marker.appendChild(typedSpan);
 			hint.marker.appendChild(
 				document.createTextNode(hint.label.slice(typed.length))
@@ -360,8 +369,16 @@ export function initWebviewVimium(config: WebviewGuestConfig): void {
 		if (newTab) {
 			// Resolve the nearest link and let the host open it in a new Web
 			// viewer tab; non-links just get a plain click.
-			const link = el.closest("a[href]") as HTMLAnchorElement | null;
-			const url = link ? link.href : "";
+			const link = el.closest("a[href]");
+			const href = link?.getAttribute("href");
+			let url = "";
+			if (href) {
+				try {
+					url = new URL(href, document.baseURI).href;
+				} catch {
+					url = "";
+				}
+			}
 			if (/^https?:\/\//i.test(url)) {
 				send({ type: "open-url", url });
 				return;
