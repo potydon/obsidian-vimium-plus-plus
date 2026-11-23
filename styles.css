@@ -53,16 +53,25 @@
 	font-size: var(--font-ui-smaller, 12px);
 }
 
-/* One row in the custom key bindings list: key sequence field + command button. */
-.vimium-keybinding-row .vimium-keybinding-key {
+/* The compact key/prefix field shared by every binding row. */
+.vimium-leader-row .vimium-keybinding-key,
+.vimium-leader-group-row .vimium-keybinding-key,
+.vimium-keybinding-row .vimium-keybinding-key,
+.vimium-terminal-row .vimium-keybinding-key {
 	width: 8em;
+	flex: 0 1 8em;
+	min-width: 5em;
 	text-align: center;
 	font-family: var(--font-monospace, monospace);
 }
 
-/* The shell-command template field in a terminal command row. */
-.vimium-terminal-row .vimium-terminal-command {
-	width: 24em;
+/* The shell-command template field in a reading-mode binding row fills the
+   space between the key/kind controls and the delete button. */
+.vimium-keybinding-row .vimium-terminal-command {
+	flex: 1 1 0;
+	width: auto;
+	min-width: 8em;
+	max-width: 100%;
 	font-family: var(--font-monospace, monospace);
 }
 
@@ -89,6 +98,225 @@
 	color: var(--color-blue);
 }
 
+/* Leader keys typed so far, shown in the status bar while a sequence is
+   pending. Hidden when empty so it takes no space. */
+.vimium-pending-keys:empty {
+	display: none;
+}
+
+.vimium-pending-keys {
+	font-family: var(--font-monospace, monospace);
+	color: var(--text-accent);
+	pointer-events: none;
+}
+
+/* which-key popup, like LazyVim's "helix" preset: bottom-right, above the
+   status bar. Informational only, so clicks pass through to the app. */
+.vimium-which-key {
+	position: fixed;
+	right: var(--size-4-4);
+	bottom: var(--size-4-12);
+	z-index: var(--layer-notice);
+	min-width: 16rem;
+	max-width: 28rem;
+	max-height: 75vh;
+	overflow-y: auto;
+	padding: var(--size-4-2) var(--size-4-3);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+	pointer-events: none;
+}
+
+.vimium-which-key-title {
+	margin-bottom: var(--size-4-1);
+	color: var(--text-accent);
+	font-family: var(--font-monospace, monospace);
+	font-weight: var(--font-semibold);
+}
+
+.vimium-which-key-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.vimium-which-key-row {
+	display: flex;
+	gap: var(--size-4-3);
+	padding: 1px 0;
+}
+
+.vimium-which-key-key {
+	min-width: 3.5em;
+	color: var(--text-accent);
+	font-family: var(--font-monospace, monospace);
+}
+
+.vimium-which-key-desc {
+	color: var(--text-normal);
+}
+
+.vimium-which-key-group {
+	color: var(--color-purple);
+}
+
+.vimium-which-key-footer {
+	margin-top: var(--size-4-1);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Settings rows with several controls (leader groups and bindings, key
+   bindings, terminal commands). In a narrow window the controls wrap onto
+   extra lines and the flexible text fields shrink, instead of overlapping or
+   spilling outside the settings pane. The action button keeps its preferred
+   width and wraps its own label. */
+.vimium-leader-row,
+.vimium-leader-group-row,
+.vimium-keybinding-row,
+.vimium-terminal-row {
+	flex-wrap: wrap;
+}
+
+.setting-item.vimium-leader-row .setting-item-control,
+.setting-item.vimium-leader-group-row .setting-item-control,
+.setting-item.vimium-keybinding-row .setting-item-control,
+.setting-item.vimium-terminal-row .setting-item-control {
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	justify-content: flex-start;
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* Every row uses the same column widths. The description takes the space
+   left over after the fixed-width controls, so rows line up and only their
+   height changes when a label wraps. */
+.vimium-leader-row .vimium-leader-desc {
+	flex: 1 1 0;
+	width: auto;
+	min-width: 6em;
+}
+
+.vimium-leader-row .vimium-leader-file {
+	flex: 0 1 14em;
+	width: 14em;
+	min-width: 8em;
+	max-width: 100%;
+	font-family: var(--font-monospace, monospace);
+}
+
+.vimium-leader-group-row .vimium-leader-group-name {
+	flex: 1 1 0;
+	width: auto;
+	min-width: 6em;
+}
+
+/* Fixed-width controls: the same width in every row, so content changes
+   only the row height, never the layout. */
+.vimium-leader-row .setting-item-control > select,
+.vimium-keybinding-row .setting-item-control > select.vimium-binding-kind {
+	flex: 0 1 7em;
+	width: 7em;
+	min-width: 5em;
+}
+
+/* Leader rows keep a fixed command-button width so every leader row lines up;
+   long command names wrap inside it and make the row taller instead. */
+.setting-item.vimium-leader-row .setting-item-control > button:not(.extra-setting-button) {
+	flex: 0 1 14em;
+	width: 14em;
+	min-width: 8em;
+	max-width: 100%;
+	height: auto;
+	justify-content: flex-start;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	text-align: left;
+	line-height: var(--line-height-tight, 1.3);
+}
+
+/* Custom key bindings and terminal commands: the middle control fills the
+   space between the key field and the delete button, so delete always stays
+   at the far right. */
+.setting-item.vimium-keybinding-row .setting-item-control,
+.setting-item.vimium-terminal-row .setting-item-control {
+	justify-content: flex-end;
+}
+
+.setting-item.vimium-keybinding-row .setting-item-control > button:not(.extra-setting-button) {
+	flex: 1 1 0;
+	width: auto;
+	min-width: 8em;
+	max-width: 100%;
+	height: auto;
+	justify-content: flex-start;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	text-align: left;
+	line-height: var(--line-height-tight, 1.3);
+}
+
+/* Section label inside the combined leader settings list. */
+.vimium-leader-subheading {
+	margin: var(--size-4-2) 0 0;
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+}
+
+/* Drag handle for sortable settings rows (leader groups/bindings and
+   terminal commands). */
+.vimium-drag-handle {
+	flex: 0 0 auto;
+	cursor: grab;
+	user-select: none;
+	touch-action: none;
+}
+
+.vimium-drag-handle:active {
+	cursor: grabbing;
+}
+
+.vimium-leader-row.vimium-row-dragging,
+.vimium-leader-group-row.vimium-row-dragging,
+.vimium-terminal-row.vimium-row-dragging {
+	opacity: 0.45;
+}
+
+.vimium-leader-row.vimium-row-drop-target,
+.vimium-leader-group-row.vimium-row-drop-target,
+.vimium-terminal-row.vimium-row-drop-target {
+	box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+/* Add buttons sit directly below their list (Add group under the groups,
+   Add binding under the bindings). Obsidian makes setting buttons fill the
+   control, so keep these at their natural width and let them wrap only when
+   the pane is too narrow. */
+.vimium-leader-actions,
+.vimium-binding-actions {
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.setting-item.vimium-leader-actions .setting-item-control,
+.setting-item.vimium-binding-actions .setting-item-control {
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.setting-item.vimium-leader-actions .setting-item-control > button:not(.extra-setting-button),
+.setting-item.vimium-binding-actions .setting-item-control > button:not(.extra-setting-button) {
+	flex: 0 0 auto;
+	width: auto;
+	max-width: 100%;
+}
+
 /* Prompt modal used by explorer actions (new file, rename, move, copy). */
 .vimium-prompt {
 	display: flex;
@@ -108,4 +336,27 @@
 
 .vimium-prompt + .setting-item-description {
 	margin-top: var(--size-4-2);
+}
+
+/* Native table navigation. The selected cell is outlined while the cell
+   editor is hidden; the cursor layers inside the widget would otherwise
+   compete with that outline. */
+.cm-editor .vimium-table-nav-mode.cm-table-widget,
+.cm-editor .vimium-table-nav-mode .cm-table-widget {
+	cursor: default;
+}
+
+.cm-editor .vimium-table-nav-mode .cm-vimCursorLayer {
+	display: none;
+}
+
+.vimium-table-nav-active {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -1px;
+	border-radius: var(--radius-s);
+}
+
+.vimium-table-cell-hidden {
+	visibility: hidden;
+	position: absolute;
 }

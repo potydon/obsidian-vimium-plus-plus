@@ -228,16 +228,16 @@ export class WebviewBridge {
 			t: "tabNew",
 			x: "tabClose",
 		};
-		// Custom bindings and terminal commands override built-ins on the host
-		// but cannot run in the guest; drop exactly-claimed sequences so those
-		// keys pass through to the site instead of doing the wrong thing.
-		// (Known gap: a custom multi-key like "jj" delays j on the host but
-		// not in the guest.)
+		// Custom reading-mode bindings override built-ins on the host but cannot
+		// run in the guest; drop exactly-claimed sequences so those keys pass
+		// through to the site instead of doing the wrong thing. (Known gap: a
+		// custom multi-key like "jj" delays j on the host but not in the guest.)
 		for (const binding of settings.keyBindings) {
-			if (binding.key && binding.commandId) delete keys[binding.key];
-		}
-		for (const cmd of settings.terminalCommands) {
-			if (cmd.key && cmd.command) delete keys[cmd.key];
+			const action =
+				binding.kind === "terminal"
+					? binding.terminalCommand
+					: binding.commandId;
+			if (binding.key && action) delete keys[binding.key];
 		}
 		return {
 			scrollStep: settings.scrollStep,

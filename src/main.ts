@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin, View } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	VimiumSettings,
@@ -15,6 +15,8 @@ import {
 	collectRecentFileItems,
 } from "./omnibar";
 import { runTerminalCommand } from "./exec";
+import { Leader } from "./leader/leader";
+import { VimExtras } from "./more-vim";
 
 export default class VimiumPlugin extends Plugin {
 	settings!: VimiumSettings;
@@ -24,8 +26,11 @@ export default class VimiumPlugin extends Plugin {
 	private hintEngine!: HintEngine;
 	private scroller!: Scroller;
 	private webviewBridge!: WebviewBridge;
+	private leader!: Leader;
+	private vimExtras!: VimExtras;
 
 	private indicatorEl: HTMLElement | null = null;
+	private pendingEl: HTMLElement | null = null;
 	// The native Vim layer's current mode: "normal", "insert", "visual",
 	// "replace", etc. Escape is only ours to consume in normal mode.
 	private vimMode = "normal";
@@ -60,6 +65,12 @@ export default class VimiumPlugin extends Plugin {
 			() => this.refreshModeIndicator()
 		);
 
+		this.pendingEl = this.addStatusBarItem();
+		this.pendingEl.addClass("vimium-pending-keys");
+		this.leader = new Leader(this.app, () => this.settings, this.pendingEl);
+		this.leader.rebuild();
+		this.vimExtras = new VimExtras(this.app, this);
+
 		this.applyEditorConfig();
 
 		this.addSettingTab(new VimiumSettingTab(this.app, this));
@@ -74,6 +85,9 @@ export default class VimiumPlugin extends Plugin {
 		// Keep newly-activated notes in Reading view while in reading mode.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.leader?.reset();
+				this.vimExtras?.reset();
+				this.vimExtras?.init();
 				this.watchVimMode();
 				this.webviewBridge.ensureAll();
 				this.syncExplorerKeys();
@@ -89,6 +103,9 @@ export default class VimiumPlugin extends Plugin {
 		// mode state stale.
 		this.registerEvent(
 			this.app.workspace.on("layout-change", () => {
+				this.leader?.reset();
+				this.vimExtras?.reset();
+				this.vimExtras?.init();
 				this.watchVimMode();
 				this.webviewBridge.ensureAll();
 				this.syncExplorerKeys();
@@ -106,6 +123,7 @@ export default class VimiumPlugin extends Plugin {
 		this.registerCommands();
 
 		this.app.workspace.onLayoutReady(() => {
+			this.vimExtras.init();
 			this.watchVimMode();
 			this.webviewBridge.ensureAll();
 			this.syncExplorerKeys();
@@ -116,7 +134,11 @@ export default class VimiumPlugin extends Plugin {
 	onunload(): void {
 		this.webviewBridge?.destroy();
 		this.hintEngine?.hide();
+		this.leader?.destroy();
+		this.vimExtras?.uninstall();
 		this.explorer?.restoreNativeKeys();
+		this.pendingEl?.remove();
+		this.pendingEl = null;
 		this.indicatorEl?.remove();
 		this.indicatorEl = null;
 		for (const cm of this.vimBoundCms) {
@@ -130,8 +152,36 @@ export default class VimiumPlugin extends Plugin {
 	// ---- settings -----------------------------------------------------------
 
 	async loadSettings(): Promise<void> {
-		const data = (await this.loadData()) as Partial<VimiumSettings> | null;
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+		const data = (await this.loadData()) as
+			| (Partial<VimiumSettings> & {
+					/** Older versions kept shell commands in their own list. */
+					terminalCommands?: { key?: string; command?: string }[];
+			  })
+			| null;
+		const settings: VimiumSettings = Object.assign({}, DEFAULT_SETTINGS, data);
+		// Normalize stored bindings and fold the old terminal list into the one
+		// reading-mode list, so both kinds share a single ordered array.
+		settings.keyBindings = (settings.keyBindings ?? []).map((binding) => ({
+			key: binding.key ?? "",
+			kind: binding.kind === "terminal" ? "terminal" : "command",
+			commandId: binding.commandId ?? "",
+			commandName: binding.commandName ?? "",
+			terminalCommand: binding.terminalCommand ?? "",
+		}));
+		for (const cmd of data?.terminalCommands ?? []) {
+			if (!cmd?.key && !cmd?.command) continue;
+			settings.keyBindings.push({
+				key: cmd.key ?? "",
+				kind: "terminal",
+				commandId: "",
+				commandName: "",
+				terminalCommand: cmd.command ?? "",
+			});
+		}
+		// Drop the legacy key so it is not saved (and migrated) again.
+		delete (settings as VimiumSettings & { terminalCommands?: unknown })
+			.terminalCommands;
+		this.settings = settings;
 	}
 
 	async saveSettings(): Promise<void> {
@@ -139,6 +189,8 @@ export default class VimiumPlugin extends Plugin {
 		// Keep live webview guests in sync with hint/scroll settings.
 		this.webviewBridge?.reinjectAll();
 		this.syncExplorerKeys();
+		this.leader?.rebuild();
+		this.vimExtras?.syncSettings();
 		this.clearPending();
 	}
 
@@ -274,11 +326,13 @@ export default class VimiumPlugin extends Plugin {
 
 	/** Enter editing with a clean Vim mode; a fresh editor starts in normal. */
 	private enterEditing(): void {
+		this.leader?.reset();
 		this.vimMode = "normal";
 		void this.modeManager.enterEditing();
 	}
 
 	private exitToReading(): void {
+		this.leader?.reset();
 		this.vimMode = "normal";
 		void this.modeManager.exitToReading();
 	}
@@ -308,13 +362,44 @@ export default class VimiumPlugin extends Plugin {
 
 		// Obsidian's own overlays (modals, menus, suggestions) take the keyboard;
 		// vim keys must not fire behind a delete/rename confirmation.
-		if (isOverlayOpen()) return;
+		if (isOverlayOpen()) {
+			this.leader.reset();
+			return;
+		}
+
+		// While a leader sequence is pending every key belongs to it, so <Esc>
+		// can cancel and <BS> can step back out of a group. Focus moving into a
+		// text field ends the sequence so typing is never swallowed.
+		if (this.leader.active) {
+			// The editor is contentEditable, but in Vim normal mode the leader
+			// owns the sequence there too. Any other text field ends it.
+			if (isEditableTarget() && !this.editorAcceptsLeader(e.target)) {
+				this.leader.reset();
+				return;
+			}
+			if (this.leader.handleKey(e)) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			return;
+		}
+
+		// Spacekeys-style activation: when enabled, the leader key starts a
+		// sequence from any pane where the user is not typing, not just the
+		// Reading/explorer/editor contexts handled below.
+		if (
+			this.settings.activateOnLeaderKey !== "disabled" &&
+			this.startLeader(e, true)
+		) {
+			return;
+		}
 
 		// The file explorer has its own neo-tree-style key set. This must run
 		// before the editing guard: clicking the explorer while a note was in
 		// editing mode leaves modeManager.mode as "editing".
 		if (this.settings.explorerKeys && this.explorer.isActive()) {
 			if (isEditableTarget()) return;
+			if (this.startLeader(e)) return;
 			// Ctrl/Cmd+Enter and Shift+Enter always open the focused folder's
 			// folder note, even when plain Enter is configured not to.
 			if (this.explorer.handleModifiedEnter(e)) {
@@ -335,8 +420,28 @@ export default class VimiumPlugin extends Plugin {
 		// so the editing branch must not swallow keys on webview leaves.
 		const webviewActive = this.webviewBridge.activeWebview() !== null;
 		if (!webviewActive && this.modeManager.mode === "editing") {
-			if (e.key === "Escape" && !hasModifier(e)) {
-				if (this.modeManager.handleEditingEscape(this.vimMode)) {
+			const fromEditor = this.isEditorTarget(e.target);
+			// The leader works in the editor too, but only in Vim normal mode
+			// with no command in progress, so it can't steal a count, operator,
+			// motion, or f/t key from Vim.
+			if (fromEditor && this.editorAcceptsLeader(e.target) && this.startLeader(e)) {
+				return;
+			}
+			if (this.vimExtras.handleKeyDown(e, fromEditor)) {
+				e.preventDefault();
+				e.stopPropagation();
+				return;
+			}
+			// Escape only exits to Reading from the editor text itself. A modal
+			// that closed on this same Escape (command palette, Omnisearch) has
+			// already removed its container by now, so an overlay check alone
+			// would misread it as an editor Escape. Let Vim cancel an in-progress
+			// count/operator instead of exiting.
+			if (e.key === "Escape" && !hasModifier(e) && fromEditor) {
+				const vimBusy =
+					this.activeEditorVim()?.state?.vim != null &&
+					!this.editorAcceptsLeader(e.target);
+				if (!vimBusy && this.modeManager.handleEditingEscape(this.vimMode)) {
 					this.vimMode = "normal";
 					e.preventDefault();
 					e.stopPropagation();
@@ -347,6 +452,17 @@ export default class VimiumPlugin extends Plugin {
 
 		// --- reading mode ---
 		if (isEditableTarget()) return;
+		// This branch is also the fallback for every non-editor pane. Without
+		// broad activation, keep the leader to Markdown views (and the explorer,
+		// which normally returns above) instead of every pane.
+		if (
+			(this.settings.activateOnLeaderKey === "enabled" ||
+				this.explorer.isActive() ||
+				this.app.workspace.getActiveViewOfType(MarkdownView) != null) &&
+			this.startLeader(e)
+		) {
+			return;
+		}
 		// Leave OS/Obsidian shortcuts (Ctrl/Cmd/Alt) untouched. Shift is ours.
 		if (e.ctrlKey || e.metaKey || e.altKey) return;
 
@@ -354,6 +470,66 @@ export default class VimiumPlugin extends Plugin {
 			e.preventDefault();
 			e.stopPropagation();
 		}
+	}
+
+	/**
+	 * Try to begin a leader sequence. Checked before the modifier filter so
+	 * sequences like <C-Space> work, and before the chord buffer so a pending
+	 * chord (e.g. `g` waiting for `gg`) cannot swallow the leader key.
+	 *
+	 * `broad` marks the Spacekeys-style activation pass, which applies the
+	 * "Activate on leader key" restriction. The usual Reading/explorer/editor
+	 * call sites keep working regardless of that setting.
+	 */
+	private startLeader(e: KeyboardEvent, broad = false): boolean {
+		if (broad && !this.leaderActivationAllowed(e)) return false;
+		// Spacekeys leaves these panes alone: Canvas uses Space to pan, a Web
+		// viewer page keeps its own keyboard, and the sidebars bind Space to
+		// their own actions.
+		if (this.leaderBlockedView()) return false;
+		if (!this.leader.handleKey(e)) return false;
+		this.vimExtras?.reset();
+		this.clearPending();
+		e.preventDefault();
+		e.stopPropagation();
+		return true;
+	}
+
+	/** View types where the leader must never start. */
+	private leaderBlockedView(): boolean {
+		const viewType =
+			this.app.workspace.getActiveViewOfType(View)?.getViewType() ?? "";
+		return (
+			viewType === "webviewer" ||
+			viewType === "canvas" ||
+			LEADER_BLOCKED_VIEW_TYPES.has(viewType)
+		);
+	}
+
+	/**
+	 * Whether the broad leader activation pass may start a sequence from the
+	 * current focus. Mirrors Spacekeys' "Activate on space": allow any pane
+	 * where the user is not typing, and with "Markdown only" require a
+	 * Markdown view. Blocked view types are handled by startLeader.
+	 */
+	private leaderActivationAllowed(e: KeyboardEvent): boolean {
+		const mode = this.settings.activateOnLeaderKey;
+		if (mode === "disabled") return false;
+
+		// The editor body is contentEditable, so handle it before the generic
+		// text-field check: Vim normal mode is allowed, insert/visual are not.
+		if (this.isEditorTarget(e.target)) {
+			return this.editorAcceptsLeader(e.target);
+		}
+
+		if (
+			mode === "markdown_only" &&
+			this.app.workspace.getActiveViewOfType(MarkdownView) == null
+		) {
+			return false;
+		}
+
+		return !isEditableTarget();
 	}
 
 	private handleReadingKey(e: KeyboardEvent): boolean {
@@ -415,17 +591,22 @@ export default class VimiumPlugin extends Plugin {
 
 	/** Custom command and terminal bindings, usable from any key context. */
 	private customTargets(): { seq: string; run: () => void }[] {
-		const targets: { seq: string; run: () => void }[] = this.settings.keyBindings
-			.filter((b) => b.key.length > 0 && b.commandId)
-			.map((b) => ({
-				seq: b.key,
-				run: () => void this.app.commands.executeCommandById(b.commandId),
-			}));
-		for (const cmd of this.settings.terminalCommands) {
-			if (cmd.key.length > 0 && cmd.command) {
+		const targets: { seq: string; run: () => void }[] = [];
+		for (const binding of this.settings.keyBindings) {
+			if (!binding.key) continue;
+			if (binding.kind === "terminal") {
+				if (!binding.terminalCommand) continue;
+				const command = binding.terminalCommand;
 				targets.push({
-					seq: cmd.key,
-					run: () => runTerminalCommand(this.app, cmd.command),
+					seq: binding.key,
+					run: () => runTerminalCommand(this.app, command),
+				});
+			} else {
+				if (!binding.commandId) continue;
+				const commandId = binding.commandId;
+				targets.push({
+					seq: binding.key,
+					run: () => void this.app.commands.executeCommandById(commandId),
 				});
 			}
 		}
@@ -627,6 +808,13 @@ export default class VimiumPlugin extends Plugin {
 			return;
 		}
 		const editing = this.modeManager.mode === "editing";
+		const tableMode = editing ? this.vimExtras?.tableNav.modeLabel() : null;
+		if (tableMode) {
+			this.indicatorEl.setText(tableMode);
+			this.indicatorEl.toggleClass("mod-normal", true);
+			this.indicatorEl.toggleClass("mod-insert", false);
+			return;
+		}
 		const insert = editing && this.vimMode === "insert";
 		this.indicatorEl.setText(
 			editing ? VIM_MODE_LABELS[this.vimMode] ?? "NORMAL" : "READING"
@@ -637,15 +825,55 @@ export default class VimiumPlugin extends Plugin {
 
 	/** Subscribe to the active editor's vim adapter so the indicator can reflect insert mode. */
 	private watchVimMode(): void {
+		const cm = this.activeEditorVim();
+		if (!cm?.on || this.vimBoundCms.has(cm)) return;
+		this.vimBoundCms.add(cm);
+		cm.on("vim-mode-change", this.onVimModeChange);
+	}
+
+	/** The active markdown editor's vim adapter, if Obsidian's vim mode is loaded. */
+	private activeEditorVim(): VimAwareCm | null {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = (
 			view as unknown as {
 				editMode?: { editor?: { cm?: { cm?: VimAwareCm } } };
 			} | null
 		)?.editMode?.editor?.cm?.cm;
-		if (!cm?.on || this.vimBoundCms.has(cm)) return;
-		this.vimBoundCms.add(cm);
-		cm.on("vim-mode-change", this.onVimModeChange);
+		return cm ?? null;
+	}
+
+	/**
+	 * Whether a key event came from the active note's editor text. Modals,
+	 * sidebars, the inline title, and properties are all outside it, even when
+	 * the event was dispatched just as a modal closed.
+	 */
+	private isEditorTarget(target: EventTarget | null): boolean {
+		if (target == null) return false;
+		const content = this.app.workspace
+			.getActiveViewOfType(MarkdownView)
+			?.contentEl.querySelector(".cm-content");
+		return content != null && content.contains(target as Node);
+	}
+
+	/**
+	 * Whether a key event came from the active editor's text in Vim normal mode
+	 * with no command in progress. Mirrors Vimakase: a count, operator, motion,
+	 * or f/t key buffer belongs to Vim, so the leader must leave those alone.
+	 */
+	private editorAcceptsLeader(target: EventTarget | null): boolean {
+		if (!this.isEditorTarget(target)) return false;
+		if (this.vimExtras?.tableNav.ownsCellKeyboard()) return false;
+
+		const vim = this.activeEditorVim()?.state?.vim;
+		if (vim == null) return false;
+		const input = vim.inputState;
+		return (
+			vim.insertMode !== true &&
+			vim.visualMode !== true &&
+			input?.operator == null &&
+			input?.motion == null &&
+			(input?.keyBuffer?.length ?? 0) === 0
+		);
 	}
 
 	private readonly onVimModeChange = (modeObj?: { mode?: string }): void => {
@@ -673,7 +901,24 @@ interface VimAwareCm {
 		event: "vim-mode-change",
 		handler: (modeObj?: { mode?: string }) => void
 	): void;
+	/** Vim's own state; absent until Obsidian's vim mode has loaded. */
+	state?: { vim?: VimState };
 }
+
+interface VimInputState {
+	keyBuffer?: string[];
+	operator?: string | null;
+	motion?: string | null;
+}
+
+interface VimState {
+	insertMode?: boolean;
+	visualMode?: boolean;
+	inputState?: VimInputState;
+}
+
+/** Panes that bind Space to their own action; the broad leader pass leaves them alone. */
+const LEADER_BLOCKED_VIEW_TYPES = new Set(["bookmarks", "outline", "tag"]);
 
 function hasModifier(e: KeyboardEvent): boolean {
 	return e.ctrlKey || e.metaKey || e.altKey || e.shiftKey;

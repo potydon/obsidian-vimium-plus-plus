@@ -3,7 +3,7 @@
 A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 
 - **Reading mode** (the Vimium layer — the default): every note opens in Reading view. Scroll with `j`/`k`, jump around with `f` click-hints, and never touch the mouse.
-- **Editing mode**: press `i` to drop into the editor, where Obsidian's built-in **Vim** key bindings take over. `Escape` first returns Vim to normal mode (from insert/visual/replace); `Escape` in normal mode comes back to Reading mode.
+- **Editing mode**: press `i` to drop into the editor, where Obsidian's built-in **Vim** key bindings take over. `Escape` first returns Vim to normal mode (from insert/visual/replace); `Escape` in normal mode comes back to Reading mode. The leader key also works here, but only in Vim normal mode.
 
 ![Click hints shown over links, tabs, and the file tree after pressing `f`](assets/hints.png)
 
@@ -29,9 +29,59 @@ A Vimium-FF–style keyboard layer for Obsidian. It gives you two modes:
 | `i` | Enter editing mode (focus the editor; native Vim active). |
 | `Esc` | (In editing mode) leave Vim insert/visual/replace for normal mode; in normal mode, return to Reading mode. |
 
-Any key — or a multi-key sequence like `gT` — can be bound to any command-palette command under **Settings → Vimium++ → Custom key bindings**. Type the keys as plain text; each character is one keypress. Two bindings ship by default: `o` (quick switcher) and `p` (command palette) — remap or remove them as you like. Custom bindings take priority over the built-in keys above; the settings dialog asks for confirmation before you shadow a built-in (or start a sequence with one, which delays it by the chord timeout).
+Any key — or a multi-key sequence like `gT` — can be bound under **Settings → Vimium++ → Reading Mode Bindings**. Each row picks **Command** (any command-palette command) or **Terminal** (a shell command), so both kinds share one list and one drag handle for reordering. Type the keys as plain text; each character is one keypress. Two command bindings ship by default: `o` (quick switcher) and `p` (command palette) — remap or remove them as you like. Terminal commands substitute `{{path}}` (active note), `{{folder}}` (the note's folder), and `{{vault}}` (vault root) with quoted absolute paths, and run from the note's folder, e.g. `kitty --directory {{folder}}`. Custom bindings take priority over the built-in keys above; the settings dialog asks for confirmation before you shadow a built-in (or start a sequence with one, which delays it by the chord timeout).
 
 While hints are showing: type the label to activate, `Backspace` to correct, `Esc` to cancel. Holding `Shift` on the **last** letter of a label opens that target in a new tab (even if you started with plain `f`).
+
+## Leader keys and which-key
+
+Press `Space` (the leader key) and a which-key popup lists the sequences that can follow. The default map is:
+
+| Sequence | Action |
+| --- | --- |
+| `Space` `f` `f` | Quick switcher |
+| `Space` `f` `p` | Command palette |
+| `Space` `f` `s` | Search in the vault |
+| `Space` `f` `b` | Bookmarks |
+| `Space` `q` `q` | Close the current tab |
+| `Space` `q` `n` | New tab |
+| `Space` `q` `s` | Save the current note |
+| `Space` `w` `v` | Split right |
+| `Space` `w` `h` | Split down |
+
+The `f`, `q`, and `w` prefixes are named groups (`find`, `quit`, `workspace`) and appear as `+find`, `+quit`, and `+workspace` in the popup. `Esc` cancels a pending sequence and `Backspace` steps back one level; by default the sequence waits until you press a key, or you can set a pending timeout to cancel it automatically.
+
+Everything is editable under **Settings → Vimium++**:
+
+- **Leader key** — one key in Vim notation, e.g. `<Space>` or `<C-Space>`.
+- **Activate on leader key** — `Enabled` starts the leader from any pane where you are not typing, not just Reading mode, the editor's Vim normal mode, and the file explorer. `Markdown only` restricts that to Markdown views. `Disabled` (the default, like Spacekeys) keeps it to those usual panes. The leader never starts in Web viewer, Canvas, or the bookmarks, outline, and tag sidebars.
+- **Leader keys** — groups and bindings live in one list. A group names a prefix so the popup shows `+name`; a binding pairs a key sequence with a description and an action (any command-palette command, or a note by name or vault path). Sequences use Vim notation for special keys: `<Space>`, `<CR>`, `<Esc>`, `<BS>`, `<Tab>`, `<C-x>`. Drag the handle on a row to reorder groups or bindings.
+- **Which-key popup / delay** and **Pending sequence timeout** — turn the popup off or tune its timing.
+
+Leader bindings work in Reading mode, in the editor's Vim **normal** mode, and while the file explorer is focused. With **Activate on leader key** enabled they also start from any other pane where you are not typing; **Markdown only** limits that extra activation to Markdown views. They never fire in insert or visual mode, when a count/operator/motion is in progress, in Web viewer or Canvas, or in the bookmarks, outline, and tag sidebars. A leader sequence takes priority over the built-in keys and custom bindings when its first key matches, so if you previously bound `Space` to another leader plugin, remove that custom binding.
+
+## Vim enhancements in the editor
+
+These features extend Obsidian's native Vim mode while editing a note. They follow the same rules as the leader: they never run in insert mode, and a pending Vim prefix or operator belongs to Vim.
+
+| Keys | Action |
+| --- | --- |
+| `ys` + text object | Surround: `yss)` surrounds the line, `ysiw"` surrounds the word, `ysi(` surrounds the inner parentheses. `w`/`W`, and `i`/`a` with brackets, quotes, backticks, `*`, `_`, `~` are supported; aliases `b` → `(`, `B` → `{`, `r` → `[`. |
+| `ds` + pair | Delete the surrounding pair. |
+| `cs` + old pair + new pair | Change the surrounding pair. |
+| `S` + pair (visual) | Wrap the visual selection. |
+| `Mod-Alt-↑` / `Mod-Alt-↓` | Add a cursor one line up/down. |
+| Motion keys with multiple cursors | `h j k l w W b B e E $ ^` move every cursor; `Esc` collapses to the main one. |
+| `Mod-D` | Select the word under the cursor; press again to add the next match, wrapping at the end. Disable Obsidian's own Mod-D hotkey first. |
+| `gd` | Open the wiki-link under the cursor. |
+| `gx` | Open the URL under the cursor in a new browser tab. |
+| `o` | Open a new line, keeping the Markdown list continuation that default Vim `o` breaks. |
+| `h` `j` `k` `l` in a table cell | Navigate cells in Obsidian's native Live Preview table editor. Counts work; `Tab` wraps to the next cell; moving past the first/last row exits the table. |
+| `i` / `a` / `c` / `s` in a table cell | Open the highlighted cell in insert, append, change, or substitute mode. |
+| `Enter` in a table cell | Open the highlighted cell in Vim normal mode. |
+| `Escape` in a table cell | Leave the cell editor and return to cell navigation, or exit the table. |
+
+**Use gj/gk for j/k** installs native Vim normal-mode mappings `j` → `gj` and `k` → `gk`, the same way vimrc-support does. Counts and pending prefixes stay with Vim. Inside Markdown tables the display-line motion keeps the current cell column and skips the `|---|` separator row, and the option also applies per cursor. **Table navigation** is a separate modal layer for native Live Preview tables; it takes priority over the `j`/`k` mapping while a cell is active, and the status pill shows `TABLE` while it owns the keyboard. **Scrolloff** keeps a configurable number of lines visible above and below the cursor. **Register system clipboard** mirrors Vim's unnamed register to the OS clipboard (yanks/deletes write to it, `p` reads from it); named registers are unchanged. All are under **Settings → Vimium++ → Vim enhancements**, along with the Mod-D toggle.
 
 ## Saving and closing (`:w` / `:q`)
 
@@ -76,7 +126,7 @@ The vim keys also work inside pages opened with Obsidian's core **Web viewer** p
 
 Inside a page: `j`/`k`/`d`/`u`/`gg`/`G` scroll, `f`/`F` show hints over the page's links and controls (`F` opens the link in a new Web viewer tab), `H`/`L` go back/forward in the page's history, and `J`/`K`/`t`/`x` switch/open/close Obsidian tabs. Typing in a page's text field passes keys through as usual; `Esc` blurs the field, and `Esc` again hands focus back to Obsidian.
 
-Limitations: custom key bindings and terminal commands don't fire while the page itself has focus (the page-to-Obsidian channel is intentionally restricted to a small fixed set of actions, since a malicious page could forge it) — press `Esc` first, then they work as normal. Hints cover the page's top frame only, and some pages (PDFs, error pages) refuse script injection entirely.
+Limitations: custom reading-mode bindings don't fire while the page itself has focus (the page-to-Obsidian channel is intentionally restricted to a small fixed set of actions, since a malicious page could forge it) — press `Esc` first, then they work as normal. Hints cover the page's top frame only, and some pages (PDFs, error pages) refuse script injection entirely.
 
 ## How the modes map to Obsidian
 
@@ -86,7 +136,7 @@ Escape is mode-aware: in Vim insert, visual, or replace mode it is left for Vim 
 
 ## Settings
 
-Hint characters, hint font size, scroll step, force-Reading-view toggle, Escape-returns-to-Reading toggle, native-Vim toggle, mode-indicator toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, and the list of CSS selectors that become hint targets.
+Hint characters, hint font size, scroll step, force-Reading-view toggle, Escape-returns-to-Reading toggle, native-Vim toggle, mode-indicator toggle, system-clipboard register, scrolloff, Mod-D select-word toggle, gj/gk-for-j/k toggle, table-navigation toggle, Web viewer integration toggle, file-explorer keys, Enter/folder-note behavior, delete confirmation, the list of CSS selectors that become hint targets, Reading Mode Bindings (commands and terminal commands in one reorderable list), and the leader key, leader activation, leader bindings, leader groups, which-key, and pending-timeout settings.
 
 ## Build
 
@@ -123,4 +173,5 @@ ln -s "$(pwd)" "<your-vault>/.obsidian/plugins/vimium-plus-plus"
 3. Press `f` → hint letters appear over links/buttons (in the note **and** on tabs/ribbon/file tree); type a label to click it; `Esc` cancels. `Shift`+`F` opens the link in a new tab.
 4. Press `i` → the note switches to the editor, focused, with native Vim (`h j k l`, `i` to insert).
 5. `Esc` in normal mode → back to Reading mode; in insert/visual mode it returns Vim to normal first.
-6. Typing in the search box is **not** hijacked by `j`/`k`/`f`.
+6. Press `Space` → the which-key popup lists `f`, `q`, and `w`; `Space` `f` `f` opens the quick switcher; `Esc` cancels the sequence.
+7. Typing in the search box is **not** hijacked by `j`/`k`/`f`.
